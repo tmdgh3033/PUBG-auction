@@ -242,16 +242,27 @@ with tab_auction:
                     sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
                     sorted_teams = [team for team, amount in sorted_bids]
                     
-                    final_winning_team = st.selectbox(
-                        "최종 낙찰 팀 선택", 
-                        sorted_teams, 
-                        format_func=lambda x: f"{x} ({st.session_state.teams[x]['name']}) - {current_bids[x]}P",
-                        key="final_winning_team_select"
-                    )
+                    # 수동 변경 선택 옵션
+                    manual_override = st.checkbox("⚙️ 낙찰 팀 수동 변경하기", key="manual_override_check")
+                    
+                    if manual_override:
+                        final_winning_team = st.selectbox(
+                            "낙찰 팀 수동 선택", 
+                            sorted_teams, 
+                            index=0,
+                            format_func=lambda x: f"{x} ({st.session_state.teams[x]['name']}) - {current_bids[x]}P",
+                            key=f"final_winning_team_select_manual_{selected_player}"
+                        )
+                    else:
+                        final_winning_team = sorted_teams[0]
+                        top_team_leader = st.session_state.teams[final_winning_team]["name"]
+                        st.info(f"자동 선택된 1위 팀: **{final_winning_team} ({top_team_leader})** - **{current_bids[final_winning_team]}P**")
+                    
                     final_bid = current_bids[final_winning_team]
                     team_budget = st.session_state.teams[final_winning_team]["budget"]
+                    winning_leader = st.session_state.teams[final_winning_team]["name"]
                     
-                    if st.button("최종 낙찰 확정", key="confirm_final_bid_btn"):
+                    if st.button(f"👑 '{final_winning_team}'({winning_leader}) 낙찰 확정!", type="primary", use_container_width=True, key="confirm_final_bid_btn"):
                         if final_bid > team_budget:
                             st.error(f"⚠️ 낙찰 실패: {final_winning_team}의 잔액({team_budget}P)보다 낙찰가({final_bid}P)가 더 높습니다!")
                         else:
@@ -260,7 +271,12 @@ with tab_auction:
                             st.session_state.teams[final_winning_team]["roster"].sort(key=lambda x: x["name"])
                             
                             st.session_state.players.loc[st.session_state.players["선수명"] == selected_player, "상태"] = "완료"
-                            st.session_state.history.append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{final_winning_team}({st.session_state.teams[final_winning_team]['name']})", "선수": selected_player, "낙찰가": final_bid})
+                            st.session_state.history.append({
+                                "시간": datetime.now().strftime("%H:%M:%S"), 
+                                "팀": f"{final_winning_team}({winning_leader})", 
+                                "선수": selected_player, 
+                                "낙찰가": final_bid
+                            })
                             
                             if selected_player in st.session_state.temp_bids:
                                 del st.session_state.temp_bids[selected_player]
@@ -333,7 +349,6 @@ with tab_landmark:
     
     selected_map = st.selectbox("추첨 및 편집할 맵을 선택하세요", list(st.session_state.custom_landmarks.keys()), key="selected_map_box")
     
-    # 랜드마크 수정을 위한 Expander 추가
     with st.expander(f"✏️ '{selected_map}' 랜드마크 목록 수정하기"):
         current_lm_text = "\n".join(st.session_state.custom_landmarks[selected_map])
         edited_lm_text = st.text_area("랜드마크 목록 (한 줄에 하나씩 입력)", value=current_lm_text, height=200)
