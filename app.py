@@ -127,7 +127,7 @@ with tab_set:
             st.session_state.num_teams = new_num_teams
             st.rerun()
     with cfg_col2:
-        st.session_state.max_roster_size = st.number_input("팀 당 최대 인원수 (팀장 포함)", min_value=1, max_value=10, value=st.session_state.max_roster_size, step=1)
+        st.session_state.max_roster_size = st.number_input("팀 당 최대 인원수", min_value=1, max_value=10, value=st.session_state.max_roster_size, step=1)
 
     st.markdown("---")
     
@@ -242,7 +242,6 @@ with tab_auction:
                     sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
                     sorted_teams = [team for team, amount in sorted_bids]
                     
-                    # 수동 변경 선택 옵션
                     manual_override = st.checkbox("⚙️ 낙찰 팀 수동 변경하기", key="manual_override_check")
                     
                     if manual_override:
