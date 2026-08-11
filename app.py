@@ -56,6 +56,64 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 맵별 주요 16개 랜드마크 목록 정의 (에란겔, 미라마, 태이고 맞춤 설정 완료)
+MAP_LANDMARKS = {
+    "에란겔 (Erangel)": [
+        "로족", 
+        "강남", 
+        "야스나야", 
+        "밀베", 
+        "밀타", 
+        "포친키", 
+        "강북", 
+        "리포브카", 
+        "노보", 
+        "프리모스크", 
+        "밀타파워", 
+        "페리", 
+        "서버니 / 사격장", 
+        "멘션 / 프리즌 / 쉘터", 
+        "학교 / 아파트", 
+        "병원 / 각카"
+    ],
+    "미라마 (Mirama)": [
+        "푸에르토",
+        "파워그리드",
+        "라코브레리아",
+        "몬테 누에보",
+        "그레이브 / 미나스",
+        "엘 아자르",
+        "페카도",
+        "캄포밀타",
+        "하시엔다",
+        "엘 포조",
+        "발레 델 마르 / 프리즌",
+        "산마르틴",
+        "츄마세라",
+        "임팔라",
+        "로스 레온스",
+        "크루즈 델 발레"
+    ],
+    "태이고 (Taego)": [
+        "해무사",
+        "영천",
+        "에어포트",
+        "십야드",
+        "북산사",
+        "호산프리즌",
+        "하포",
+        "간녕",
+        "아미베이스",
+        "월송",
+        "팔라스",
+        "오향",
+        "터미널",
+        "스쿨 / 송암",
+        "호산",
+        "고독"
+    ]
+}
+
 # 세션 상태 초기화 및 players.csv 자동 읽기
 if "initialized" not in st.session_state:
     st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 17)}
@@ -63,8 +121,8 @@ if "initialized" not in st.session_state:
     st.session_state.current_player = None
     st.session_state.temp_bids = {} 
     st.session_state.forced_player = None 
+    st.session_state.landmark_assignments = {} # 랜드마크 뽑기 결과 저장용
     
-    # GitHub에 함께 올린 players.csv 파일이 있으면 자동으로 불러옴
     if os.path.exists("players.csv"):
         try:
             df_csv = pd.read_csv("players.csv")
@@ -83,7 +141,9 @@ if "initialized" not in st.session_state:
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 
 # 1. 페이지 탭 구성
-tab_set, tab_auction, tab_random = st.tabs(["설정 (팀장/선수 입력)", "경매 진행", "🎲 랜덤 선수 추첨"])
+tab_set, tab_auction, tab_random, tab_landmark = st.tabs([
+    "설정 (팀장/선수 입력)", "경매 진행", "🎲 랜덤 선수 추첨", "🗺️ 랜드마크 추첨"
+])
 
 # 탭 1: 설정
 with tab_set:
@@ -274,3 +334,39 @@ with tab_random:
             
         st.markdown(f"## **{st.session_state.forced_player}** 🎉")
         st.write("상단 **[경매 진행]** 탭으로 이동하시면 해당 선수가 자동으로 선택되어 있습니다!")
+
+# 탭 4: 🗺️ 랜드마크 추첨 페이지
+with tab_landmark:
+    st.subheader("🗺️ 맵별 16개 팀 랜드마크 랜덤 배정")
+    st.write("선택한 맵 내 16개 주요 랜드마크를 16개 팀에게 무작위로 할당합니다.")
+    
+    selected_map = st.selectbox("추첨할 맵을 선택하세요", list(MAP_LANDMARKS.keys()), key="selected_map_box")
+    
+    col_lm1, col_lm2 = st.columns([1, 1])
+    
+    with col_lm1:
+        st.markdown(f"##### 📌 {selected_map} 주요 랜드마크 목록 (16개)")
+        lm_list = MAP_LANDMARKS[selected_map]
+        st.dataframe(pd.DataFrame({"번호": range(1, 17), "랜드마크": lm_list}), hide_index=True, height=350)
+        
+        if st.button("🎲 16개 팀 랜드마크 전체 추첨!", type="primary", use_container_width=True, key="draw_landmark_btn"):
+            shuffled_landmarks = random.sample(lm_list, len(lm_list))
+            assignments = []
+            for i in range(16):
+                t_key = f"팀 {i+1}"
+                t_name = st.session_state.teams[t_key]["name"]
+                t_display = f"{t_key} ({t_name})" if t_name else t_key
+                assignments.append({
+                    "팀": t_display,
+                    "배정된 랜드마크": shuffled_landmarks[i]
+                })
+            st.session_state.landmark_assignments[selected_map] = assignments
+            st.rerun()
+
+    with col_lm2:
+        st.markdown(f"##### 🏆 {selected_map} 팀별 배정 결과")
+        if selected_map in st.session_state.landmark_assignments:
+            res_df = pd.DataFrame(st.session_state.landmark_assignments[selected_map])
+            st.table(res_df)
+        else:
+            st.info("아직 추첨 결과가 없습니다. 왼쪽의 [🎲 16개 팀 랜드마크 전체 추첨!] 버튼을 눌러주세요.")
