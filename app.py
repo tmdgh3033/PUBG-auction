@@ -9,21 +9,30 @@ st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 # 여백 및 간격 줄이기 커스텀 스타일 (CSS)
 st.markdown("""
     <style>
+    /* 1. 상단 화면 여백을 4.5rem으로 늘려서 Streamlit UI 상단바 가림 방지 */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 4.5rem !important;
         padding-bottom: 1.5rem !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
     }
+    
+    /* 2. 카드(container) 내부 여백 축소 */
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         padding: 8px 10px !important;
     }
+
+    /* 3. 요소 간 상하 간격(Gap) 줄이기 */
     div[data-testid="stVerticalBlock"] {
         gap: 0.4rem !important;
     }
+    
+    /* 4. 컬럼(Column) 사이의 좌우 간격 줄이기 */
     div[data-testid="column"] {
         padding: 0px 3px !important;
     }
+
+    /* 5. 로스터 보기(Expander) 내부 간격 및 여백 축소 */
     .stExpander details summary {
         padding-top: 2px !important;
         padding-bottom: 2px !important;
@@ -102,7 +111,25 @@ with tab_set:
                 else:
                     st.warning("이미 등록된 선수 이름입니다.")
 
-        st.write(f"현재 등록된 선수: {len(st.session_state.players)}명")
+        st.write(f"현재 등록된 선수: **{len(st.session_state.players)}명**")
+        
+        # 선수 삭제 기능
+        if not st.session_state.players.empty:
+            st.markdown("---")
+            st.subheader("🗑️ 등록된 선수 삭제")
+            del_player = st.selectbox("삭제할 선수 선택", st.session_state.players["선수명"].tolist(), key="delete_player_select")
+            
+            col_del1, col_del2 = st.columns(2)
+            with col_del1:
+                if st.button("선수 삭제", key="del_player_btn"):
+                    st.session_state.players = st.session_state.players[st.session_state.players["선수명"] != del_player].reset_index(drop=True)
+                    st.success(f"'{del_player}' 선수를 삭제했습니다.")
+                    st.rerun()
+            with col_del2:
+                if st.button("⚠️ 명단 전체 삭제", key="clear_all_players_btn"):
+                    st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+                    st.success("선수 명단을 모두 초기화했습니다.")
+                    st.rerun()
 
 # 탭 2: 경매 진행
 with tab_auction:
