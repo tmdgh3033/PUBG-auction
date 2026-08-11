@@ -56,8 +56,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 맵별 주요 랜드마크 목록 정의
-MAP_LANDMARKS = {
+# 맵별 기본 랜드마크 초기값
+DEFAULT_MAP_LANDMARKS = {
     "에란겔 (Erangel)": [
         "로족", "강남", "야스나야", "밀베", "밀타", "포친키", "강북", "리포브카", 
         "노보", "프리모스크", "밀타파워", "페리", "서버니 / 사격장", 
@@ -83,6 +83,9 @@ if "max_roster_size" not in st.session_state:
 if "teams" not in st.session_state:
     st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
 
+if "custom_landmarks" not in st.session_state:
+    st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
+
 if "initialized" not in st.session_state:
     st.session_state.history = []
     st.session_state.current_player = None
@@ -105,7 +108,6 @@ if "initialized" not in st.session_state:
         
     st.session_state.initialized = True
 
-# 현재 선택된 팀 수에 맞게 active_teams 생성
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
 
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
@@ -208,7 +210,6 @@ with tab_auction:
             
             step_unit = st.radio("낙찰가 조정 단위", [5, 10, 25, 50, 100, 500], horizontal=True, key="bid_step_unit")
             
-            # 설정한 인원수 미만인 팀만 입찰할 수 있도록 제한
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -271,7 +272,6 @@ with tab_auction:
 
     with col_right:
         st.subheader(f"📊 팀 현황 ({st.session_state.num_teams}개 팀)")
-        # 4열 레이아웃으로 설정된 팀 수만큼 출력
         for i in range(0, st.session_state.num_teams, 4):
             cols = st.columns(4)
             for j in range(4):
@@ -330,20 +330,39 @@ with tab_random:
 # 탭 4: 🗺️ 랜드마크 추첨 페이지
 with tab_landmark:
     st.subheader(f"🗺️ 맵별 팀 랜드마크 랜덤 배정 ({st.session_state.num_teams}개 팀)")
-    st.write("선택한 맵 내 주요 랜드마크를 설정된 팀 수에 맞춰 무작위로 할당합니다.")
     
-    selected_map = st.selectbox("추첨할 맵을 선택하세요", list(MAP_LANDMARKS.keys()), key="selected_map_box")
+    selected_map = st.selectbox("추첨 및 편집할 맵을 선택하세요", list(st.session_state.custom_landmarks.keys()), key="selected_map_box")
+    
+    # 랜드마크 수정을 위한 Expander 추가
+    with st.expander(f"✏️ '{selected_map}' 랜드마크 목록 수정하기"):
+        current_lm_text = "\n".join(st.session_state.custom_landmarks[selected_map])
+        edited_lm_text = st.text_area("랜드마크 목록 (한 줄에 하나씩 입력)", value=current_lm_text, height=200)
+        
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            if st.button("💾 랜드마크 목록 저장", key="save_landmarks_btn"):
+                new_lm_list = [line.strip() for line in edited_lm_text.split("\n") if line.strip()]
+                st.session_state.custom_landmarks[selected_map] = new_lm_list
+                st.success(f"'{selected_map}' 랜드마크 {len(new_lm_list)}개가 성공적으로 저장되었습니다!")
+                st.rerun()
+        with col_btn2:
+            if st.button("🔄 기본 랜드마크로 초기화", key="reset_landmarks_btn"):
+                st.session_state.custom_landmarks[selected_map] = list(DEFAULT_MAP_LANDMARKS[selected_map])
+                st.success(f"'{selected_map}' 랜드마크가 기본 설정으로 초기화되었습니다.")
+                st.rerun()
+
+    st.markdown("---")
     
     col_lm1, col_lm2 = st.columns([1, 1])
     
     with col_lm1:
-        st.markdown(f"##### 📌 {selected_map} 주요 랜드마크 목록")
-        lm_list = MAP_LANDMARKS[selected_map]
+        lm_list = st.session_state.custom_landmarks[selected_map]
+        st.markdown(f"##### 📌 {selected_map} 주요 랜드마크 목록 ({len(lm_list)}개)")
         st.dataframe(pd.DataFrame({"번호": range(1, len(lm_list) + 1), "랜드마크": lm_list}), hide_index=True, height=350)
         
         if st.button(f"🎲 {st.session_state.num_teams}개 팀 랜드마크 전체 추첨!", type="primary", use_container_width=True, key="draw_landmark_btn"):
             if len(lm_list) < st.session_state.num_teams:
-                st.error(f"⚠️ 랜드마크 개수({len(lm_list)}개)가 팀 수({st.session_state.num_teams}개)보다 적어 추첨할 수 없습니다!")
+                st.error(f"⚠️ 랜드마크 개수({len(lm_list)}개)가 팀 수({st.session_state.num_teams}개)보다 적어 추첨할 수 없습니다! 상단 편집기에서 랜드마크를 추가해 주세요.")
             else:
                 shuffled_landmarks = random.sample(lm_list, st.session_state.num_teams)
                 assignments = []
