@@ -239,14 +239,15 @@ with tab_set:
             const doc = window.parent.document;
             function enableEnterNext() {
                 const inputs = Array.from(doc.querySelectorAll('div[data-testid="stTextInput"] input'));
+                // 선수 추가 폼을 제외한 팀장명 입력창만 타겟팅
                 inputs.forEach((input, idx) => {
-                    if (!input.dataset.enterBound) {
+                    if (!input.dataset.enterBound && !input.placeholder.includes("추가할 선수")) {
                         input.dataset.enterBound = "true";
                         input.addEventListener('keydown', function(e) {
                             if (e.key === 'Enter') {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                if (idx + 1 < inputs.length) {
+                                if (idx + 1 < inputs.length && !inputs[idx + 1].placeholder.includes("추가할 선수")) {
                                     inputs[idx + 1].focus();
                                 }
                             }
@@ -265,17 +266,19 @@ with tab_set:
         st.subheader("📝 선수 명단 및 사진 추가")
         
         with st.form(key="player_add_form", clear_on_submit=True):
-            new_player = st.text_input("추가할 선수 이름 입력 (엔터 입력 가능)")
+            new_player = st.text_input("추가할 선수 이름 입력 (입력 후 엔터 누르면 추가됨)", placeholder="추가할 선수 이름 입력")
             player_img = st.file_uploader("선수 사진 첨부 (선택사항)", type=["png", "jpg", "jpeg", "webp"])
-            submit_player = st.form_submit_button("선수 추가")
+            submit_player = st.form_submit_button("선수 추가 (또는 엔터키)")
             
-            if submit_player and new_player:
-                if new_player not in st.session_state.players["선수명"].values:
+            if submit_player and new_player.strip():
+                clean_name = new_player.strip()
+                if clean_name not in st.session_state.players["선수명"].values:
                     img_bytes = player_img.getvalue() if player_img is not None else None
-                    new_row = pd.DataFrame([{"선수명": new_player, "상태": "대기중", "사진": img_bytes}])
+                    new_row = pd.DataFrame([{"선수명": clean_name, "상태": "대기중", "사진": img_bytes}])
                     st.session_state.players = pd.concat([st.session_state.players, new_row], ignore_index=True)
                     save_data_to_file()
-                    st.success(f"'{new_player}' 추가 완료!")
+                    st.success(f"'{clean_name}' 선수 추가 완료!")
+                    st.rerun()
                 else:
                     st.warning("이미 등록된 선수 이름입니다.")
 
