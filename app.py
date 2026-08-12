@@ -145,7 +145,7 @@ def load_data_from_file():
     return False
 
 def reset_all_data():
-    """초기화 버튼 클릭 시 실행되는 콜백 함수 (화면이 그려지기 전 실행)"""
+    """초기화 버튼 클릭 시 실행되는 콜백 함수"""
     if os.path.exists(DATA_FILE):
         try:
             os.remove(DATA_FILE)
@@ -163,7 +163,7 @@ def reset_all_data():
     st.session_state.temp_bids = {}
     st.session_state.forced_player = None
     
-    # 20개 팀장 입력창 키 초기화
+    # 팀장 입력창 키 초기화
     for i in range(20):
         st.session_state[f"team_name_input_{i}"] = ""
 
@@ -171,6 +171,15 @@ def reset_all_data():
 if "initialized" not in st.session_state:
     if not load_data_from_file():
         reset_all_data()
+        
+    # 세션 시작 시 필수 경매 변수들 안전 초기화 (AttributeError 방지)
+    if "current_player" not in st.session_state:
+        st.session_state.current_player = None
+    if "temp_bids" not in st.session_state:
+        st.session_state.temp_bids = {}
+    if "forced_player" not in st.session_state:
+        st.session_state.forced_player = None
+        
     st.session_state.initialized = True
 
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
@@ -422,7 +431,7 @@ with tab_random:
     else:
         st.warning("모든 선수가 추첨되었습니다!")
         
-    if st.session_state.forced_player:
+    if st.session_state.get("forced_player"):
         st.markdown("---")
         st.markdown("### 🎰 이번에 뽑힌 경매 대상자")
         
