@@ -136,7 +136,8 @@ def load_data_from_file():
                                 img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
                             except Exception:
                                 img_bytes = None
-                        df_rows.append({"선수명": p["선수명"], "상태": p["상태"], "사진": img_bytes})
+                        status = p.get("상태", "대기중")
+                        df_rows.append({"선수명": p["선수명"], "상태": status, "사진": img_bytes})
                     st.session_state.players = pd.DataFrame(df_rows)
                 else:
                     st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
@@ -332,9 +333,9 @@ with tab_auction:
             if not player_info.empty and player_info.iloc[0]["사진"] is not None:
                 st.image(player_info.iloc[0]["사진"], width=200, caption=f"선수: {selected_player}")
             
-            # 유찰 처리 기능 버튼 추가
+            # 유찰 처리 기능 버튼 (유찰 시 '유찰' 상태로 설정하여 신규 대기 인원 이후에 추첨되도록 구분)
             if st.button(f"⚠️ '{selected_player}' 선수 유찰 처리 (대기 명단으로)", type="secondary", use_container_width=True, key="pass_auction_player_btn"):
-                st.session_state.players.loc[st.session_state.players["선수명"] == selected_player, "상태"] = "대기중"
+                st.session_state.players.loc[st.session_state.players["선수명"] == selected_player, "상태"] = "유찰"
                 st.session_state.history.append({
                     "시간": datetime.now().strftime("%H:%M:%S"), 
                     "팀": "-", 
@@ -346,7 +347,7 @@ with tab_auction:
                 st.session_state.current_player = None
                 st.session_state.forced_player = None
                 save_data_to_file()
-                st.success(f"'{selected_player}' 선수가 유찰 처리되어 다시 대기 명단으로 이동했습니다.")
+                st.success(f"'{selected_player}' 선수가 유찰 처리되었습니다. (신규 선수 추첨이 끝난 후 다시 추첨됩니다.)")
                 st.rerun()
 
             if st.session_state.current_player != selected_player:
@@ -464,21 +465,35 @@ with tab_auction:
 # 탭 3: 랜덤 선수 추첨 페이지
 with tab_random:
     st.subheader("🎲 대기 중인 선수 중 랜덤 추첨")
-    st.write("아직 경매에 오르지 않은 대기 중인 선수들 중에서 중복 없이 랜덤으로 다음 경매 대상자를 뽑습니다.")
+    st.write("아직 경매에 오르지 않은 선수들을 우선 추첨하며, 모두 소진된 후 유찰된 선수들이 랜덤으로 추첨됩니다.")
     
-    waiting_df = st.session_state.players[st.session_state.players["상태"] == "대기중"]
+    # 1. 신규 미추첨 대기 선수
+    new_waiting_df = st.session_state.players[st.session_state.players["상태"] == "대기중"]
+    # 2. 유찰된 대기 선수
+    passed_waiting_df = st.session_state.players[st.session_state.players["상태"] == "유찰"]
     
-    if not waiting_df.empty:
-        st.info(f"현재 추첨 가능한 대기 선수: 총 **{len(waiting_df)}명**")
-        
+    num_new = len(new_waiting_df)
+    num_passed = len(passed_waiting_df)
+    
+    if num_new > 0 or num_passed > 0:
+        if num_new > 0:
+            st.info(f"현재 추첨 가능: **신규 대기 선수 {num_new}명** (우선 추첨 대상)")
+        else:
+            st.warning(f"신규 대기 선수가 모두 소진되었습니다! **유찰 대기 선수 {num_passed}명** 중에서 추첨합니다.")
+            
         if st.button("🎲 랜덤 선수 뽑기 돌리기!", type="primary", use_container_width=True):
-            chosen = random.choice(waiting_df["선수명"].tolist())
+            # 신규 대기 선수가 남아있으면 우선 추첨, 없으면 유찰 선수 중 추첨
+            if num_new > 0:
+                chosen = random.choice(new_waiting_df["선수명"].tolist())
+            else:
+                chosen = random.choice(passed_waiting_df["선수명"].tolist())
+                
             st.session_state.forced_player = chosen
             st.session_state.players.loc[st.session_state.players["선수명"] == chosen, "상태"] = "추첨완료"
             save_data_to_file()
             st.rerun()
     else:
-        st.warning("모든 선수가 추첨되었습니다!")
+        st.success("🎉 모든 선수가 추첨되었습니다!")
         
     if st.session_state.get("forced_player"):
         st.markdown("---")
