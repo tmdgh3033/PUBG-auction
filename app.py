@@ -120,6 +120,11 @@ def load_data_from_file():
                 st.session_state.history = store.get("history", [])
                 st.session_state.landmark_assignments = store.get("landmark_assignments", {})
                 
+                # 팀장 이름 입력 위젯 키도 세션 복원
+                for i in range(20):
+                    t_key = f"팀 {i+1}"
+                    st.session_state[f"team_name_input_{i}"] = st.session_state.teams[t_key]["name"]
+                
                 players_list = store.get("players", [])
                 if players_list:
                     df_rows = []
@@ -148,6 +153,9 @@ if "initialized" not in st.session_state:
         st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
         st.session_state.history = []
         st.session_state.landmark_assignments = {}
+        
+        for i in range(20):
+            st.session_state[f"team_name_input_{i}"] = ""
         
         if os.path.exists("players.csv"):
             try:
@@ -200,15 +208,19 @@ with tab_set:
         team_name_changed = False
         for i in range(st.session_state.num_teams):
             t_key = f"팀 {i+1}"
-            old_val = st.session_state.teams[t_key]["name"]
+            input_key = f"team_name_input_{i}"
+            
+            if input_key not in st.session_state:
+                st.session_state[input_key] = st.session_state.teams[t_key]["name"]
+                
             new_val = st.text_input(
                 f"{t_key} 팀장명", 
-                old_val, 
-                key=f"team_name_input_{i}"
+                key=input_key
             )
-            if new_val != old_val:
+            if new_val != st.session_state.teams[t_key]["name"]:
                 st.session_state.teams[t_key]["name"] = new_val
                 team_name_changed = True
+                
         if team_name_changed:
             save_data_to_file()
     
@@ -254,13 +266,27 @@ with tab_set:
 
     st.markdown("---")
     st.subheader("🚨 전체 시스템 데이터 초기화")
-    st.write("모든 팀 정보, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
+    st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
     if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data"):
         if os.path.exists(DATA_FILE):
             os.remove(DATA_FILE)
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.success("시스템의 모든 데이터가 성공적으로 초기화되었습니다.")
+            
+        # 모든 데이터 및 팀장명 입력란 초기화
+        st.session_state.num_teams = 16
+        st.session_state.max_roster_size = 7
+        st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
+        st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
+        st.session_state.history = []
+        st.session_state.landmark_assignments = {}
+        st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+        st.session_state.current_player = None
+        st.session_state.temp_bids = {}
+        st.session_state.forced_player = None
+        
+        for i in range(20):
+            st.session_state[f"team_name_input_{i}"] = ""
+            
+        st.success("팀장명을 포함한 모든 데이터가 완전히 초기화되었습니다.")
         st.rerun()
 
 # 탭 2: 경매 진행
