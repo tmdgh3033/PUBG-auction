@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
@@ -172,7 +173,7 @@ if "initialized" not in st.session_state:
     if not load_data_from_file():
         reset_all_data()
         
-    # 세션 시작 시 필수 경매 변수들 안전 초기화 (AttributeError 방지)
+    # 세션 시작 시 필수 경매 변수들 안전 초기화
     if "current_player" not in st.session_state:
         st.session_state.current_player = None
     if "temp_bids" not in st.session_state:
@@ -230,6 +231,35 @@ with tab_set:
                 
         if team_name_changed:
             save_data_to_file()
+
+        # 엔터 키 누를 때 다음 팀장명 입력창으로 커서 이동하는 스크립트 주입
+        components.html(
+            """
+            <script>
+            const doc = window.parent.document;
+            function enableEnterNext() {
+                const inputs = Array.from(doc.querySelectorAll('div[data-testid="stTextInput"] input'));
+                inputs.forEach((input, idx) => {
+                    if (!input.dataset.enterBound) {
+                        input.dataset.enterBound = "true";
+                        input.addEventListener('keydown', function(e) {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (idx + 1 < inputs.length) {
+                                    inputs[idx + 1].focus();
+                                }
+                            }
+                        }, true);
+                    }
+                });
+            }
+            setTimeout(enableEnterNext, 300);
+            setInterval(enableEnterNext, 800);
+            </script>
+            """,
+            height=0,
+        )
     
     with col2:
         st.subheader("📝 선수 명단 및 사진 추가")
