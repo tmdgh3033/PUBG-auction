@@ -239,7 +239,6 @@ with tab_set:
             const doc = window.parent.document;
             function enableEnterNext() {
                 const inputs = Array.from(doc.querySelectorAll('div[data-testid="stTextInput"] input'));
-                // 선수 추가 폼을 제외한 팀장명 입력창만 타겟팅
                 inputs.forEach((input, idx) => {
                     if (!input.dataset.enterBound && !input.placeholder.includes("추가할 선수")) {
                         input.dataset.enterBound = "true";
@@ -333,6 +332,23 @@ with tab_auction:
             if not player_info.empty and player_info.iloc[0]["사진"] is not None:
                 st.image(player_info.iloc[0]["사진"], width=200, caption=f"선수: {selected_player}")
             
+            # 유찰 처리 기능 버튼 추가
+            if st.button(f"⚠️ '{selected_player}' 선수 유찰 처리 (대기 명단으로)", type="secondary", use_container_width=True, key="pass_auction_player_btn"):
+                st.session_state.players.loc[st.session_state.players["선수명"] == selected_player, "상태"] = "대기중"
+                st.session_state.history.append({
+                    "시간": datetime.now().strftime("%H:%M:%S"), 
+                    "팀": "-", 
+                    "선수": f"{selected_player} (유찰)", 
+                    "낙찰가": 0
+                })
+                if selected_player in st.session_state.temp_bids:
+                    del st.session_state.temp_bids[selected_player]
+                st.session_state.current_player = None
+                st.session_state.forced_player = None
+                save_data_to_file()
+                st.success(f"'{selected_player}' 선수가 유찰 처리되어 다시 대기 명단으로 이동했습니다.")
+                st.rerun()
+
             if st.session_state.current_player != selected_player:
                 st.session_state.current_player = selected_player
                 if selected_player not in st.session_state.temp_bids:
