@@ -2,9 +2,13 @@ import streamlit as st
 import pandas as pd
 import random
 import os
+import json
+import base64
 from datetime import datetime
 
 st.set_page_config(page_title="배그 경매 시스템", layout="wide")
+
+DATA_FILE = "data_store.json"
 
 # 여백 및 간격 줄이기 커스텀 스타일 (CSS)
 st.markdown("""
@@ -74,38 +78,93 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
-# 세션 상태 초기화
-if "num_teams" not in st.session_state:
-    st.session_state.num_teams = 16
-if "max_roster_size" not in st.session_state:
-    st.session_state.max_roster_size = 7
+def save_data_to_file():
+    """현재 세션 상태를 JSON 파일로 자동 저장"""
+    players_data = []
+    if hasattr(st.session_state, "players") and not st.session_state.players.empty:
+        for _, row in st.session_state.players.iterrows():
+            img_b64 = None
+            if row["사진"] is not None:
+                try:
+                    img_b64 = base64.b64encode(row["사진"]).decode("utf-8")
+                except Exception:
+                    img_b64 = None
+            players_data.append({
+                "선수명": row["선수명"],
+                "상태": row["상태"],
+                "사진": img_b64
+            })
+            
+    store = {
+        "num_teams": st.session_state.num_teams,
+        "max_roster_size": st.session_state.max_roster_size,
+        "teams": st.session_state.teams,
+        "custom_landmarks": st.session_state.custom_landmarks,
+        "history": st.session_state.history,
+        "landmark_assignments": st.session_state.landmark_assignments,
+        "players": players_data
+    }
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(store, f, ensure_ascii=False, indent=2)
 
-if "teams" not in st.session_state:
-    st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
+def load_data_from_file():
+    """JSON 파일이 존재하면 불러와서 세션에 복원"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                store = json.load(f)
+                st.session_state.num_teams = store.get("num_teams", 16)
+                st.session_state.max_roster_size = store.get("max_roster_size", 7)
+                st.session_state.teams = store.get("teams", {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)})
+                st.session_state.custom_landmarks = store.get("custom_landmarks", {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()})
+                st.session_state.history = store.get("history", [])
+                st.session_state.landmark_assignments = store.get("landmark_assignments", {})
+                
+                players_list = store.get("players", [])
+                if players_list:
+                    df_rows = []
+                    for p in players_list:
+                        img_bytes = None
+                        if p["사진"]:
+                            try:
+                                img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
+                            except Exception:
+                                img_bytes = None
+                        df_rows.append({"선수명": p["선수명"], "상태": p["상태"], "사진": img_bytes})
+                    st.session_state.players = pd.DataFrame(df_rows)
+                else:
+                    st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+                return True
+        except Exception:
+            pass
+    return False
 
-if "custom_landmarks" not in st.session_state:
-    st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
-
+# 세션 상태 초기화 및 데이터 로드
 if "initialized" not in st.session_state:
-    st.session_state.history = []
+    if not load_data_from_file():
+        st.session_state.num_teams = 16
+        st.session_state.max_roster_size = 7
+        st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
+        st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
+        st.session_state.history = []
+        st.session_state.landmark_assignments = {}
+        
+        if os.path.exists("players.csv"):
+            try:
+                df_csv = pd.read_csv("players.csv")
+                if "상태" not in df_csv.columns:
+                    df_csv["상태"] = "대기중"
+                if "사진" not in df_csv.columns:
+                    df_csv["사진"] = None
+                st.session_state.players = df_csv
+            except Exception:
+                st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+        else:
+            st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+            
     st.session_state.current_player = None
     st.session_state.temp_bids = {} 
     st.session_state.forced_player = None 
-    st.session_state.landmark_assignments = {}
-    
-    if os.path.exists("players.csv"):
-        try:
-            df_csv = pd.read_csv("players.csv")
-            if "상태" not in df_csv.columns:
-                df_csv["상태"] = "대기중"
-            if "사진" not in df_csv.columns:
-                df_csv["사진"] = None
-            st.session_state.players = df_csv
-        except Exception:
-            st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
-    else:
-        st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
-        
     st.session_state.initialized = True
 
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
@@ -125,22 +184,33 @@ with tab_set:
         new_num_teams = st.number_input("진행할 총 팀 수", min_value=2, max_value=20, value=st.session_state.num_teams, step=1)
         if new_num_teams != st.session_state.num_teams:
             st.session_state.num_teams = new_num_teams
+            save_data_to_file()
             st.rerun()
     with cfg_col2:
-        st.session_state.max_roster_size = st.number_input("팀 당 최대 인원수", min_value=1, max_value=10, value=st.session_state.max_roster_size, step=1)
+        new_max_roster = st.number_input("팀 당 최대 인원수", min_value=1, max_value=10, value=st.session_state.max_roster_size, step=1)
+        if new_max_roster != st.session_state.max_roster_size:
+            st.session_state.max_roster_size = new_max_roster
+            save_data_to_file()
 
     st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
         st.subheader(f"👤 팀장 이름 설정 ({st.session_state.num_teams}개 팀)")
+        team_name_changed = False
         for i in range(st.session_state.num_teams):
             t_key = f"팀 {i+1}"
-            st.session_state.teams[t_key]["name"] = st.text_input(
+            old_val = st.session_state.teams[t_key]["name"]
+            new_val = st.text_input(
                 f"{t_key} 팀장명", 
-                st.session_state.teams[t_key]["name"], 
+                old_val, 
                 key=f"team_name_input_{i}"
             )
+            if new_val != old_val:
+                st.session_state.teams[t_key]["name"] = new_val
+                team_name_changed = True
+        if team_name_changed:
+            save_data_to_file()
     
     with col2:
         st.subheader("📝 선수 명단 및 사진 추가")
@@ -155,6 +225,7 @@ with tab_set:
                     img_bytes = player_img.getvalue() if player_img is not None else None
                     new_row = pd.DataFrame([{"선수명": new_player, "상태": "대기중", "사진": img_bytes}])
                     st.session_state.players = pd.concat([st.session_state.players, new_row], ignore_index=True)
+                    save_data_to_file()
                     st.success(f"'{new_player}' 추가 완료!")
                 else:
                     st.warning("이미 등록된 선수 이름입니다.")
@@ -171,13 +242,26 @@ with tab_set:
             with col_del1:
                 if st.button("선수 삭제", key="del_player_btn"):
                     st.session_state.players = st.session_state.players[st.session_state.players["선수명"] != del_player].reset_index(drop=True)
+                    save_data_to_file()
                     st.success(f"'{del_player}' 선수를 삭제했습니다.")
                     st.rerun()
             with col_del2:
                 if st.button("⚠️ 명단 전체 삭제", key="clear_all_players_btn"):
                     st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+                    save_data_to_file()
                     st.success("선수 명단을 모두 초기화했습니다.")
                     st.rerun()
+
+    st.markdown("---")
+    st.subheader("🚨 전체 시스템 데이터 초기화")
+    st.write("모든 팀 정보, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
+    if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data"):
+        if os.path.exists(DATA_FILE):
+            os.remove(DATA_FILE)
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.success("시스템의 모든 데이터가 성공적으로 초기화되었습니다.")
+        st.rerun()
 
 # 탭 2: 경매 진행
 with tab_auction:
@@ -281,6 +365,7 @@ with tab_auction:
                                 del st.session_state.temp_bids[selected_player]
                             st.session_state.current_player = None
                             st.session_state.forced_player = None
+                            save_data_to_file()
                             st.rerun()
                 else:
                     st.info("아직 입찰한 팀이 없습니다. 팀별로 입찰가를 적고 [입찰하기]를 눌러주세요.")
@@ -306,6 +391,7 @@ with tab_auction:
                                         t["roster"].remove(member)
                                         st.session_state.players.loc[st.session_state.players["선수명"] == member["name"], "상태"] = "추첨완료"
                                         st.session_state.history.append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
+                                        save_data_to_file()
                                         st.rerun()
         
         st.markdown("---")
@@ -327,6 +413,7 @@ with tab_random:
             chosen = random.choice(waiting_df["선수명"].tolist())
             st.session_state.forced_player = chosen
             st.session_state.players.loc[st.session_state.players["선수명"] == chosen, "상태"] = "추첨완료"
+            save_data_to_file()
             st.rerun()
     else:
         st.warning("모든 선수가 추첨되었습니다!")
@@ -357,11 +444,13 @@ with tab_landmark:
             if st.button("💾 랜드마크 목록 저장", key="save_landmarks_btn"):
                 new_lm_list = [line.strip() for line in edited_lm_text.split("\n") if line.strip()]
                 st.session_state.custom_landmarks[selected_map] = new_lm_list
+                save_data_to_file()
                 st.success(f"'{selected_map}' 랜드마크 {len(new_lm_list)}개가 성공적으로 저장되었습니다!")
                 st.rerun()
         with col_btn2:
             if st.button("🔄 기본 랜드마크로 초기화", key="reset_landmarks_btn"):
                 st.session_state.custom_landmarks[selected_map] = list(DEFAULT_MAP_LANDMARKS[selected_map])
+                save_data_to_file()
                 st.success(f"'{selected_map}' 랜드마크가 기본 설정으로 초기화되었습니다.")
                 st.rerun()
 
@@ -389,6 +478,7 @@ with tab_landmark:
                         "배정된 랜드마크": shuffled_landmarks[i]
                     })
                 st.session_state.landmark_assignments[selected_map] = assignments
+                save_data_to_file()
                 st.rerun()
 
     with col_lm2:
