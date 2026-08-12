@@ -120,7 +120,7 @@ def load_data_from_file():
                 st.session_state.history = store.get("history", [])
                 st.session_state.landmark_assignments = store.get("landmark_assignments", {})
                 
-                # 팀장 이름 입력 위젯 키도 세션 복원
+                # 팀장 이름 입력 위젯 키 세션 복원
                 for i in range(20):
                     t_key = f"팀 {i+1}"
                     st.session_state[f"team_name_input_{i}"] = st.session_state.teams[t_key]["name"]
@@ -144,35 +144,33 @@ def load_data_from_file():
             pass
     return False
 
+def reset_all_data():
+    """초기화 버튼 클릭 시 실행되는 콜백 함수 (화면이 그려지기 전 실행)"""
+    if os.path.exists(DATA_FILE):
+        try:
+            os.remove(DATA_FILE)
+        except Exception:
+            pass
+            
+    st.session_state.num_teams = 16
+    st.session_state.max_roster_size = 7
+    st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
+    st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
+    st.session_state.history = []
+    st.session_state.landmark_assignments = {}
+    st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
+    st.session_state.current_player = None
+    st.session_state.temp_bids = {}
+    st.session_state.forced_player = None
+    
+    # 20개 팀장 입력창 키 초기화
+    for i in range(20):
+        st.session_state[f"team_name_input_{i}"] = ""
+
 # 세션 상태 초기화 및 데이터 로드
 if "initialized" not in st.session_state:
     if not load_data_from_file():
-        st.session_state.num_teams = 16
-        st.session_state.max_roster_size = 7
-        st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
-        st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
-        st.session_state.history = []
-        st.session_state.landmark_assignments = {}
-        
-        for i in range(20):
-            st.session_state[f"team_name_input_{i}"] = ""
-        
-        if os.path.exists("players.csv"):
-            try:
-                df_csv = pd.read_csv("players.csv")
-                if "상태" not in df_csv.columns:
-                    df_csv["상태"] = "대기중"
-                if "사진" not in df_csv.columns:
-                    df_csv["사진"] = None
-                st.session_state.players = df_csv
-            except Exception:
-                st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
-        else:
-            st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
-            
-    st.session_state.current_player = None
-    st.session_state.temp_bids = {} 
-    st.session_state.forced_player = None 
+        reset_all_data()
     st.session_state.initialized = True
 
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
@@ -267,27 +265,7 @@ with tab_set:
     st.markdown("---")
     st.subheader("🚨 전체 시스템 데이터 초기화")
     st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
-    if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data"):
-        if os.path.exists(DATA_FILE):
-            os.remove(DATA_FILE)
-            
-        # 모든 데이터 및 팀장명 입력란 초기화
-        st.session_state.num_teams = 16
-        st.session_state.max_roster_size = 7
-        st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
-        st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
-        st.session_state.history = []
-        st.session_state.landmark_assignments = {}
-        st.session_state.players = pd.DataFrame(columns=["선수명", "상태", "사진"])
-        st.session_state.current_player = None
-        st.session_state.temp_bids = {}
-        st.session_state.forced_player = None
-        
-        for i in range(20):
-            st.session_state[f"team_name_input_{i}"] = ""
-            
-        st.success("팀장명을 포함한 모든 데이터가 완전히 초기화되었습니다.")
-        st.rerun()
+    st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data", on_click=reset_all_data)
 
 # 탭 2: 경매 진행
 with tab_auction:
