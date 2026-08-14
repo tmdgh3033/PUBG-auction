@@ -469,7 +469,7 @@ def render_live_auction_left():
                 save_db_to_file()
                 st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
 
-# 🔥 [핵심 수정] 우측 예산/로스터 현황 위치 서로 변경 (로스터 현황 상단 배치)
+# 🔥 [핵심 수정] 전체 경매 기록과 팀별 남은 예산 현황 위치 교체
 @st.fragment(run_every="1s")
 def render_live_right_panel():
     load_file_to_db()
@@ -478,7 +478,7 @@ def render_live_right_panel():
     show_rst = global_db.get("show_roster", True)
     show_hst = global_db.get("show_history", True)
     
-    # 🔥 1. [위치 변경] 팀 로스터 현황 (상단 배치)
+    # 1. 팀 로스터 현황
     rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
     rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
     btn_roster_label = "간소화(숨기기)" if show_rst else "펼쳐보기"
@@ -515,27 +515,7 @@ def render_live_right_panel():
     
     st.markdown("---")
     
-    # 🔥 2. [위치 변경] 팀별 남은 예산 현황 (하단 배치)
-    bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
-    bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
-    btn_budget_label = "간소화(숨기기)" if show_bgt else "펼쳐보기"
-    if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
-        global_db["show_budget"] = not show_bgt
-        save_db_to_file()
-        
-    if global_db.get("show_budget", True):
-        for i in range(0, global_db["num_teams"], 4):
-            m_cols = st.columns(4)
-            for j in range(4):
-                if i + j < global_db["num_teams"]:
-                    k = active_team_keys[i + j]
-                    t = global_db["teams"][k]
-                    t_label = f"{k} ({t['name']})" if t['name'] else k
-                    m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
-    
-    st.markdown("---")
-    
-    # 3. 전체 경매 기록 및 CSV 내보내기
+    # 🔥 2. [위치 변경] 전체 경매 기록 및 CSV 내보내기 (중단 배치)
     hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
     hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
     btn_history_label = "간소화(숨기기)" if show_hst else "펼쳐보기"
@@ -580,6 +560,26 @@ def render_live_right_panel():
                     mime="text/csv",
                     key=f"download_csv_roster_{rc}"
                 )
+
+    st.markdown("---")
+
+    # 🔥 3. [위치 변경] 팀별 남은 예산 현황 (하단 배치)
+    bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
+    bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
+    btn_budget_label = "간소화(숨기기)" if show_bgt else "펼쳐보기"
+    if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
+        global_db["show_budget"] = not show_bgt
+        save_db_to_file()
+        
+    if global_db.get("show_budget", True):
+        for i in range(0, global_db["num_teams"], 4):
+            m_cols = st.columns(4)
+            for j in range(4):
+                if i + j < global_db["num_teams"]:
+                    k = active_team_keys[i + j]
+                    t = global_db["teams"][k]
+                    t_label = f"{k} ({t['name']})" if t['name'] else k
+                    m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
 
 # ⚡ 랜덤 선수 추첨 프래그먼트
 @st.fragment(run_every="1s")
