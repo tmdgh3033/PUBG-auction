@@ -139,11 +139,6 @@ def load_data_from_file():
                 if "bid_val_state" not in st.session_state:
                     st.session_state.bid_val_state = store.get("bid_val_state", 10)
                 
-                for i in range(20):
-                    t_key = f"팀 {i+1}"
-                    if t_key in st.session_state.teams:
-                        st.session_state[f"team_name_input_{i}"] = st.session_state.teams[t_key]["name"]
-                
                 players_list = store.get("players", [])
                 if players_list:
                     df_rows = []
@@ -188,9 +183,6 @@ def reset_all_data():
     st.session_state.timer_running = False
     st.session_state.bid_val_state = 10
     
-    for i in range(20):
-        st.session_state[f"team_name_input_{i}"] = ""
-        
     save_data_to_file()
 
 load_data_from_file()
@@ -210,8 +202,7 @@ sync_col1, sync_col2 = st.columns([4, 1])
 with sync_col1:
     st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 with sync_col2:
-    # 설정 탭 작업 시 타자 입력 간섭을 막기 위해 기본값을 False(동기화 끔)로 변경
-    auto_sync = st.toggle("🔄 부드러운 실시간 동기화", value=False, help="경매 진행 중 켜두면 화면 새로고침 없이 다른 사람의 입찰 내역만 실시간으로 받아옵니다. (설정 입력 중에는 꺼두세요)")
+    auto_sync = st.toggle("🔄 부드러운 실시간 동기화", value=False, help="경매 진행 중 켜두면 다른 사람의 입찰 내역을 실시간으로 가져옵니다.")
 
 if auto_sync and not st.session_state.get("timer_running", False):
     st_autorefresh(interval=3000, limit=None, key="smooth_autorefresh")
@@ -253,50 +244,23 @@ with tab_set:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader(f"👤 팀장 이름 설정 ({st.session_state.num_teams}개 팀)")
-        team_name_changed = False
-        for i in range(st.session_state.num_teams):
-            t_key = f"팀 {i+1}"
-            input_key = f"team_name_input_{i}"
-            
-            if input_key not in st.session_state:
-                st.session_state[input_key] = st.session_state.teams[t_key]["name"]
+        
+        # 폼 방식으로 감싸서 입력 중 데이터 유실 완벽 방지
+        with st.form(key="team_names_form"):
+            new_names = {}
+            for i in range(st.session_state.num_teams):
+                t_key = f"팀 {i+1}"
+                cur_name = st.session_state.teams[t_key]["name"]
+                new_names[t_key] = st.text_input(f"{t_key} 팀장명", value=cur_name, key=f"form_team_input_{i}")
                 
-            new_val = st.text_input(f"{t_key} 팀장명", value=st.session_state.teams[t_key]["name"], key=input_key)
-            if new_val != st.session_state.teams[t_key]["name"]:
-                st.session_state.teams[t_key]["name"] = new_val
-                team_name_changed = True
-                
-        if team_name_changed:
-            save_data_to_file()
+            submit_team_names = st.form_submit_button("💾 팀장 명단 저장", type="primary", use_container_width=True)
+            if submit_team_names:
+                for k, v in new_names.items():
+                    st.session_state.teams[k]["name"] = v.strip()
+                save_data_to_file()
+                st.success("팀장명 설정이 성공적으로 저장되었습니다!")
+                st.rerun()
 
-        components.html(
-            """
-            <script>
-            const doc = window.parent.document;
-            function enableEnterNext() {
-                const inputs = Array.from(doc.querySelectorAll('div[data-testid="stTextInput"] input'));
-                inputs.forEach((input, idx) => {
-                    if (!input.dataset.enterBound && !input.placeholder.includes("추가할 선수")) {
-                        input.dataset.enterBound = "true";
-                        input.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (idx + 1 < inputs.length && !inputs[idx + 1].placeholder.includes("추가할 선수")) {
-                                    inputs[idx + 1].focus();
-                                }
-                            }
-                        }, true);
-                    }
-                });
-            }
-            setTimeout(enableEnterNext, 300);
-            setInterval(enableEnterNext, 800);
-            </script>
-            """,
-            height=0,
-        )
-    
     with col2:
         st.subheader("📝 선수 명단 및 티어/사진 추가")
         
@@ -308,7 +272,7 @@ with tab_set:
                 new_tier = st.number_input("선수 티어 (1=최상위)", min_value=1, max_value=20, value=1, step=1)
                 
             player_img = st.file_uploader("선수 사진 첨부 (선택사항)", type=["png", "jpg", "jpeg", "webp"])
-            submit_player = st.form_submit_button("선수 추가 (또는 엔터키)")
+            submit_player = st.form_submit_button("선수 추가")
             
             if submit_player and new_player.strip():
                 clean_name = new_player.strip()
