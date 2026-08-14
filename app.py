@@ -46,26 +46,28 @@ st.markdown("""
         gap: 0.3rem !important;
     }
     div[data-testid="column"] {
-        padding: 0px 3px !important;
+        padding: 0px 2px !important;
     }
-    /* 🔥 로스터 전용 텍스트 스타일 및 간격 최적화 */
+    /* 🔥 로스터 텍스트 스타일 최적화 */
     .roster-item-text {
         font-size: 13px !important;
-        line-height: 1.25 !important;
+        line-height: 1.2 !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         margin: 0 !important;
-        padding: 2px 0 !important;
+        padding: 3px 0 !important;
         color: #f3f4f6;
     }
-    /* 로스터 내 취소 버튼 크기 축소 */
+    /* 🔥 [수정] 로스터 취소 버튼 전용 컴팩트 CSS (줄바꿈 금지 및 크기 축소) */
     div[data-testid="stExpander"] div[data-testid="column"] button {
-        padding: 1px 4px !important;
+        padding: 1px 2px !important;
         font-size: 11px !important;
-        min-height: 22px !important;
-        height: 22px !important;
+        min-height: 20px !important;
+        height: 20px !important;
         line-height: 1 !important;
+        white-space: nowrap !important;
+        width: 100% !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -520,8 +522,8 @@ def render_live_right_panel():
                             sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
                             with st.expander("로스터 보기", expanded=True):
                                 for member in sorted_roster:
-                                    # 🔥 [개선] 텍스트 컬럼 폭 확대 및 컴팩트 CSS 적용
-                                    c1, c2 = st.columns([3.8, 1.2])
+                                    # 🔥 [수정] 선수 정보와 취소 버튼의 비율을 4:1로 설정하여 버튼 줄바꿈 방지
+                                    c1, c2 = st.columns([4, 1])
                                     m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
                                     c1.markdown(f"<div class='roster-item-text'>• <b>{member['name']}</b> ({m_tier_str}{member['bid']}P)</div>", unsafe_allow_html=True)
                                     if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
@@ -740,7 +742,6 @@ def render_live_landmark_tab():
 
 # 탭 2: 경매 진행
 with tab_auction:
-    # 🔥 [수정] 좌측 경매 진행 세로열을 더 좁게(30%), 우측 로스터 세로열을 더 넓게(70%) 설정
     col_left, col_right = st.columns([3, 7])
     
     with col_left:
