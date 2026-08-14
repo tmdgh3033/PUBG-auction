@@ -59,7 +59,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 맵별 기본 랜드마크 초기값
 DEFAULT_MAP_LANDMARKS = {
     "에란겔 (Erangel)": [
         "로족", "강남", "야스나야", "밀베", "밀타", "포친키", "강북", "리포브카", 
@@ -194,7 +193,6 @@ def reset_all_data():
         
     save_data_to_file()
 
-# 파일 데이터 로드
 load_data_from_file()
 
 if "initialized" not in st.session_state:
@@ -212,11 +210,11 @@ sync_col1, sync_col2 = st.columns([4, 1])
 with sync_col1:
     st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 with sync_col2:
-    auto_sync = st.toggle("🔄 부드러운 실시간 동기화", value=True, help="켜두면 전체 화면 새로고침 없이 다른 사람의 입찰 내역만 부드럽게 가져옵니다.")
+    # 설정 탭 작업 시 타자 입력 간섭을 막기 위해 기본값을 False(동기화 끔)로 변경
+    auto_sync = st.toggle("🔄 부드러운 실시간 동기화", value=False, help="경매 진행 중 켜두면 화면 새로고침 없이 다른 사람의 입찰 내역만 실시간으로 받아옵니다. (설정 입력 중에는 꺼두세요)")
 
-# 브라우저 깜빡임 없는 리프레시 컴포넌트 적용 (2초 단위)
 if auto_sync and not st.session_state.get("timer_running", False):
-    st_autorefresh(interval=2000, limit=None, key="smooth_autorefresh")
+    st_autorefresh(interval=3000, limit=None, key="smooth_autorefresh")
 
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
 
@@ -263,7 +261,7 @@ with tab_set:
             if input_key not in st.session_state:
                 st.session_state[input_key] = st.session_state.teams[t_key]["name"]
                 
-            new_val = st.text_input(f"{t_key} 팀장명", key=input_key)
+            new_val = st.text_input(f"{t_key} 팀장명", value=st.session_state.teams[t_key]["name"], key=input_key)
             if new_val != st.session_state.teams[t_key]["name"]:
                 st.session_state.teams[t_key]["name"] = new_val
                 team_name_changed = True
@@ -355,9 +353,7 @@ with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # ========================================================
-        # ⏱️ 1. 간소화된 슬림 타이머
-        # ========================================================
+        # 1. 카운트다운 타이머
         with st.container(border=True):
             rem = st.session_state.timer_remaining
             set_sec = st.session_state.timer_set_seconds
@@ -439,9 +435,7 @@ with tab_auction:
                 save_data_to_file()
                 st.rerun()
 
-        # ========================================================
-        # 👤 2. 현재 경매 선수 카드리뉴얼
-        # ========================================================
+        # 2. 선수 선택 및 카드
         available_players = st.session_state.players[st.session_state.players["상태"] == "추첨완료"]
         if "티어" not in available_players.columns:
             available_players["티어"] = 1
@@ -502,9 +496,7 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # ========================================================
-            # 💰 3. 실시간 바인딩 입찰 등록 카드
-            # ========================================================
+            # 3. 입찰 카드
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
