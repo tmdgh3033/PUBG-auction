@@ -80,6 +80,7 @@ def get_global_db():
         "landmark_assignments": {},
         "players": [],
         "current_player": None,
+        "current_landmark_map": "에란겔 (Erangel)",
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 7,
@@ -132,6 +133,7 @@ def do_reset_all_data():
         "landmark_assignments": {},
         "players": [],
         "current_player": None,
+        "current_landmark_map": "에란겔 (Erangel)",
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 7,
@@ -511,7 +513,7 @@ def render_live_right_panel():
                     key=f"download_csv_roster_{rc}"
                 )
 
-# 🔥 [핵심 수정] 랜덤 선수 추첨 전체를 프래그먼트로 감싸서 클릭 시 F5 깜빡임 방지
+# ⚡ 랜덤 선수 추첨 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_random_pick():
     load_file_to_db()
@@ -570,10 +572,17 @@ def render_live_random_pick():
         st.markdown(f"## **{f_name}** ({f_tier}티어) 🎉")
         st.write("상단 **[경매 진행]** 탭으로 이동하시면 해당 선수가 자동으로 선택되어 있습니다!")
 
-# 🔥 [핵심 수정] 랜드마크 추첨 영역 전체를 프래그먼트로 감싸서 클릭 시 F5 깜빡임 방지
+# 🔥 [핵심 수정] 관전자 화면에서도 맵 변경이 실시간 감지되어 자동 반영되도록 조치
 @st.fragment(run_every="1s")
 def render_live_landmark_draw(selected_map):
     load_file_to_db()
+    
+    # 서버 맵 변경 시 관전자 화면 자동 rerun 트리거
+    srv_map = global_db.get("current_landmark_map")
+    if srv_map and st.session_state.get("last_synced_landmark_map") != srv_map:
+        st.session_state["last_synced_landmark_map"] = srv_map
+        st.rerun()
+
     col_lm1, col_lm2 = st.columns([1, 1])
     
     with col_lm1:
@@ -712,7 +721,24 @@ with tab_random:
 with tab_landmark:
     st.subheader(f"🗺️ 맵별 팀 랜드마크 랜덤 배정 ({global_db['num_teams']}개 팀)")
     
-    selected_map = st.selectbox("추첨 및 편집할 맵을 선택하세요", list(global_db["custom_landmarks"].keys()), key=f"selected_map_box_{rc}")
+    map_keys = list(global_db["custom_landmarks"].keys())
+    select_map_key = f"selected_map_box_{rc}"
+    srv_map = global_db.get("current_landmark_map")
+
+    # 서버의 선택 맵 정보를 관전자 로컬 세션과 자동 동기화
+    if srv_map and srv_map in map_keys:
+        if st.session_state.get("last_synced_landmark_map") != srv_map:
+            st.session_state[select_map_key] = srv_map
+            st.session_state["last_synced_landmark_map"] = srv_map
+    elif select_map_key not in st.session_state or st.session_state[select_map_key] not in map_keys:
+        st.session_state[select_map_key] = map_keys[0] if map_keys else "에란겔 (Erangel)"
+        st.session_state["last_synced_landmark_map"] = st.session_state[select_map_key]
+
+    selected_map = st.selectbox("추첨 및 편집할 맵을 선택하세요", map_keys, key=select_map_key)
+    
+    if global_db.get("current_landmark_map") != selected_map:
+        global_db["current_landmark_map"] = selected_map
+        save_db_to_file()
     
     with st.expander(f"✏️ '{selected_map}' 랜드마크 목록 수정하기"):
         current_lm_text = "\n".join(global_db["custom_landmarks"].get(selected_map, []))
@@ -735,5 +761,5 @@ with tab_landmark:
 
     st.markdown("---")
     
-    # ⚡ 랜드마크 추첨 프래그먼트 (새로고침 없이 실시간 동작)
+    # ⚡ 랜드마크 실시간 추첨 및 맵 동기화 프래그먼트
     render_live_landmark_draw(selected_map)
