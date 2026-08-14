@@ -82,10 +82,13 @@ def save_data_to_file():
         for _, row in st.session_state.players.iterrows():
             img_b64 = None
             if row["사진"] is not None:
-                try:
-                    img_b64 = base64.b64encode(row["사진"]).decode("utf-8")
-                except Exception:
-                    img_b64 = None
+                if isinstance(row["사진"], bytes):
+                    try:
+                        img_b64 = base64.b64encode(row["사진"]).decode("utf-8")
+                    except Exception:
+                        img_b64 = None
+                elif isinstance(row["사진"], str):
+                    img_b64 = row["사진"]
             players_data.append({
                 "선수명": row["선수명"],
                 "티어": int(row.get("티어", 1)),
@@ -101,7 +104,15 @@ def save_data_to_file():
         "custom_landmarks": st.session_state.custom_landmarks,
         "history": st.session_state.history,
         "landmark_assignments": st.session_state.landmark_assignments,
-        "players": players_data
+        "players": players_data,
+        "current_player": st.session_state.get("current_player", None),
+        "temp_bids": st.session_state.get("temp_bids", {}),
+        "forced_player": st.session_state.get("forced_player", None),
+        "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
+        "timer_remaining": st.session_state.get("timer_remaining", 15),
+        "timer_running": st.session_state.get("timer_running", False),
+        "bid_val_state": st.session_state.get("bid_val_state", 10),
+        "last_updated": time.time()
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
@@ -119,9 +130,19 @@ def load_data_from_file():
                 st.session_state.history = store.get("history", [])
                 st.session_state.landmark_assignments = store.get("landmark_assignments", {})
                 
+                st.session_state.current_player = store.get("current_player", None)
+                st.session_state.temp_bids = store.get("temp_bids", {})
+                st.session_state.forced_player = store.get("forced_player", None)
+                st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
+                st.session_state.timer_remaining = store.get("timer_remaining", 15)
+                st.session_state.timer_running = store.get("timer_running", False)
+                if "bid_val_state" not in st.session_state:
+                    st.session_state.bid_val_state = store.get("bid_val_state", 10)
+                
                 for i in range(20):
                     t_key = f"팀 {i+1}"
-                    st.session_state[f"team_name_input_{i}"] = st.session_state.teams[t_key]["name"]
+                    if t_key in st.session_state.teams:
+                        st.session_state[f"team_name_input_{i}"] = st.session_state.teams[t_key]["name"]
                 
                 players_list = store.get("players", [])
                 if players_list:
@@ -162,29 +183,20 @@ def reset_all_data():
     st.session_state.current_player = None
     st.session_state.temp_bids = {}
     st.session_state.forced_player = None
+    st.session_state.timer_set_seconds = 15
+    st.session_state.timer_remaining = 15
+    st.session_state.timer_running = False
+    st.session_state.bid_val_state = 10
     
     for i in range(20):
         st.session_state[f"team_name_input_{i}"] = ""
+        
+    save_data_to_file()
 
-# 입찰가 가산용 콜백 함수
-def add_bid_amount(amount, max_limit):
-    current = st.session_state.get("bid_val_state", 10)
-    st.session_state.bid_val_state = min(max_limit, current + amount)
+# 데이터 로드 및 초기화
+load_data_from_file()
 
-# 세션 초기화
 if "initialized" not in st.session_state:
-    if not load_data_from_file():
-        reset_all_data()
-        
-    if "current_player" not in st.session_state:
-        st.session_state.current_player = None
-    if "temp_bids" not in st.session_state:
-        st.session_state.temp_bids = {}
-    if "forced_player" not in st.session_state:
-        st.session_state.forced_player = None
-    if "initial_budget" not in st.session_state:
-        st.session_state.initial_budget = 1000
-        
     if "show_bidding" not in st.session_state:
         st.session_state.show_bidding = True
     if "show_budget" not in st.session_state:
@@ -193,22 +205,29 @@ if "initialized" not in st.session_state:
         st.session_state.show_roster = True
     if "show_history" not in st.session_state:
         st.session_state.show_history = True
-        
-    if "timer_set_seconds" not in st.session_state:
-        st.session_state.timer_set_seconds = 15
-    if "timer_remaining" not in st.session_state:
-        st.session_state.timer_remaining = 15
-    if "timer_running" not in st.session_state:
-        st.session_state.timer_running = False
-        
-    if "bid_val_state" not in st.session_state:
-        st.session_state.bid_val_state = 10
-        
     st.session_state.initialized = True
 
-active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
+# 상단 실시간 동기화 토글 스위치 및 타이머 스크립트
+sync_col1, sync_col2 = st.columns([4, 1])
+with sync_col1:
+    st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
+with sync_col2:
+    auto_sync = st.toggle("🔄 실시간 동기화", value=True, help="켜두면 다른 사용자의 입찰 및 경매 진행 상태가 2초마다 자동 동기화됩니다.")
 
-st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
+# 자동 새로고침 메커니즘 (2초 마다)
+if auto_sync and not st.session_state.get("timer_running", False):
+    components.html(
+        """
+        <script>
+        setTimeout(function(){
+            window.parent.location.reload();
+        }, 2000);
+        </script>
+        """,
+        height=0
+    )
+
+active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
 
 tab_set, tab_auction, tab_random, tab_landmark = st.tabs([
     "설정 (팀수/팀장/선수 입력)", "경매 진행", "🎲 랜덤 선수 추첨", "🗺️ 랜드마크 추첨"
@@ -365,19 +384,23 @@ with tab_auction:
                     if rem <= 0:
                         st.session_state.timer_remaining = set_sec
                     st.session_state.timer_running = True
+                    save_data_to_file()
                     st.rerun()
             else:
                 if t_btn_col1.button("⏸️ 일시정지", type="secondary", use_container_width=True, key="timer_pause_btn"):
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
                     
             if t_btn_col2.button("🔄 리셋", use_container_width=True, key="timer_reset_btn"):
                 st.session_state.timer_running = False
                 st.session_state.timer_remaining = set_sec
+                save_data_to_file()
                 st.rerun()
                 
             if t_btn_col3.button("+5초", use_container_width=True, key="timer_add5_btn"):
                 st.session_state.timer_remaining += 5
+                save_data_to_file()
                 st.rerun()
 
             with st.expander("⚙️ 타이머 시간 변경 설정"):
@@ -386,21 +409,25 @@ with tab_auction:
                     st.session_state.timer_set_seconds = 10
                     st.session_state.timer_remaining = 10
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
                 if p_c2.button("15초", use_container_width=True):
                     st.session_state.timer_set_seconds = 15
                     st.session_state.timer_remaining = 15
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
                 if p_c3.button("30초", use_container_width=True):
                     st.session_state.timer_set_seconds = 30
                     st.session_state.timer_remaining = 30
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
                 if p_c4.button("60초", use_container_width=True):
                     st.session_state.timer_set_seconds = 60
                     st.session_state.timer_remaining = 60
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
                 
                 custom_sec = st.number_input("직접 초 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1)
@@ -408,14 +435,17 @@ with tab_auction:
                     st.session_state.timer_set_seconds = custom_sec
                     st.session_state.timer_remaining = custom_sec
                     st.session_state.timer_running = False
+                    save_data_to_file()
                     st.rerun()
 
             if st.session_state.timer_running and st.session_state.timer_remaining > 0:
                 time.sleep(1)
                 st.session_state.timer_remaining -= 1
+                save_data_to_file()
                 st.rerun()
             elif st.session_state.timer_running and st.session_state.timer_remaining <= 0:
                 st.session_state.timer_running = False
+                save_data_to_file()
                 st.rerun()
 
         # ========================================================
@@ -479,9 +509,10 @@ with tab_auction:
                 st.session_state.bid_val_state = 10
                 if selected_player not in st.session_state.temp_bids:
                     st.session_state.temp_bids[selected_player] = {}
+                save_data_to_file()
 
             # ========================================================
-            # 💰 3. 안전한 콜백 기반 입찰 등록 카드
+            # 💰 3. 실시간 바인딩 입찰 등록 카드
             # ========================================================
             team_options = {
                 k: st.session_state.teams[k] 
@@ -502,12 +533,23 @@ with tab_auction:
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
                     
-                    # 콜백(on_click)을 사용해 안전하게 입찰가 증가
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
-                    quick_col1.button("+10P", key="btn_add_10", on_click=add_bid_amount, args=(10, max_b_limit))
-                    quick_col2.button("+50P", key="btn_add_50", on_click=add_bid_amount, args=(50, max_b_limit))
-                    quick_col3.button("+100P", key="btn_add_100", on_click=add_bid_amount, args=(100, max_b_limit))
-                    quick_col4.button("+500P", key="btn_add_500", on_click=add_bid_amount, args=(500, max_b_limit))
+                    if quick_col1.button("+10P", key="btn_add_10"):
+                        st.session_state.bid_val_state = min(max_b_limit, st.session_state.bid_val_state + 10)
+                        save_data_to_file()
+                        st.rerun()
+                    if quick_col2.button("+50P", key="btn_add_50"):
+                        st.session_state.bid_val_state = min(max_b_limit, st.session_state.bid_val_state + 50)
+                        save_data_to_file()
+                        st.rerun()
+                    if quick_col3.button("+100P", key="btn_add_100"):
+                        st.session_state.bid_val_state = min(max_b_limit, st.session_state.bid_val_state + 100)
+                        save_data_to_file()
+                        st.rerun()
+                    if quick_col4.button("+500P", key="btn_add_500"):
+                        st.session_state.bid_val_state = min(max_b_limit, st.session_state.bid_val_state + 500)
+                        save_data_to_file()
+                        st.rerun()
                         
                     entered_bid = st.number_input(
                         "입찰 금액(P)", 
@@ -521,6 +563,7 @@ with tab_auction:
                         st.session_state.temp_bids[selected_player][bidding_team] = entered_bid
                         st.session_state.timer_remaining = st.session_state.timer_set_seconds
                         st.session_state.timer_running = True
+                        save_data_to_file()
                         st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰!")
                         st.rerun()
 
@@ -569,6 +612,7 @@ with tab_auction:
                                 st.session_state.forced_player = None
                                 st.session_state.timer_running = False
                                 st.session_state.timer_remaining = st.session_state.timer_set_seconds
+                                st.session_state.bid_val_state = 10
                                 save_data_to_file()
                                 st.rerun()
 
