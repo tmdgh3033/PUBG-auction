@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 import random
 import os
@@ -11,9 +10,6 @@ from datetime import datetime
 st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
-
-# 실시간 동기화 타이머 (1초 주기)
-st_autorefresh(interval=1000, limit=None, key="global_realtime_sync_timer")
 
 st.markdown("""
     <style>
@@ -105,42 +101,14 @@ def init_defaults():
         st.session_state.timer_end_time = 0
     if "timer_running" not in st.session_state:
         st.session_state.timer_running = False
-    if "live_bidding_team" not in st.session_state:
-        st.session_state.live_bidding_team = "팀 1"
-    if "live_bid_amount" not in st.session_state:
-        st.session_state.live_bid_amount = 10
-    if "last_updated" not in st.session_state:
-        st.session_state.last_updated = 0
-    if "show_bidding" not in st.session_state:
-        st.session_state.show_bidding = True
+    if "bid_val" not in st.session_state:
+        st.session_state.bid_val = 10
     if "show_budget" not in st.session_state:
         st.session_state.show_budget = True
     if "show_roster" not in st.session_state:
         st.session_state.show_roster = True
     if "show_history" not in st.session_state:
         st.session_state.show_history = True
-
-def get_empty_store():
-    return {
-        "num_teams": 16,
-        "max_roster_size": 7,
-        "initial_budget": 1000,
-        "teams": {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)},
-        "custom_landmarks": {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()},
-        "history": [],
-        "landmark_assignments": {},
-        "players": [],
-        "current_player": None,
-        "temp_bids": {},
-        "forced_player": None,
-        "timer_set_seconds": 15,
-        "timer_remaining": 15,
-        "timer_end_time": 0,
-        "timer_running": False,
-        "live_bidding_team": "팀 1",
-        "live_bid_amount": 10,
-        "last_updated": time.time()
-    }
 
 def save_data_to_file():
     players_data = []
@@ -162,9 +130,6 @@ def save_data_to_file():
                 "사진": img_b64
             })
             
-    now_ts = time.time()
-    st.session_state.last_updated = now_ts
-
     store = {
         "num_teams": st.session_state.get("num_teams", 16),
         "max_roster_size": st.session_state.get("max_roster_size", 7),
@@ -180,112 +145,61 @@ def save_data_to_file():
         "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
         "timer_remaining": st.session_state.get("timer_remaining", 15),
         "timer_end_time": st.session_state.get("timer_end_time", 0),
-        "timer_running": st.session_state.get("timer_running", False),
-        "live_bidding_team": st.session_state.get("live_bidding_team", "팀 1"),
-        "live_bid_amount": st.session_state.get("live_bid_amount", 10),
-        "last_updated": now_ts
+        "timer_running": st.session_state.get("timer_running", False)
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
 
-def sync_data_from_file_if_updated():
+def load_data_from_file():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 store = json.load(f)
-                file_ts = store.get("last_updated", 0)
-                session_ts = st.session_state.get("last_updated", 0)
-
-                if file_ts > session_ts or "teams" not in st.session_state:
-                    st.session_state.last_updated = file_ts
-                    st.session_state.num_teams = store.get("num_teams", 16)
-                    st.session_state.max_roster_size = store.get("max_roster_size", 7)
-                    st.session_state.initial_budget = store.get("initial_budget", 1000)
-                    
-                    default_teams = {f"팀 {i}": {"name": "", "budget": st.session_state.initial_budget, "roster": []} for i in range(1, 21)}
-                    loaded_teams = store.get("teams", {})
-                    for t_key, t_val in default_teams.items():
-                        if t_key not in loaded_teams:
-                            loaded_teams[t_key] = t_val
-                    st.session_state.teams = loaded_teams
-
-                    st.session_state.custom_landmarks = store.get("custom_landmarks", {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()})
-                    st.session_state.history = store.get("history", [])
-                    st.session_state.landmark_assignments = store.get("landmark_assignments", {})
-                    
-                    st.session_state.current_player = store.get("current_player", None)
-                    st.session_state.temp_bids = store.get("temp_bids", {})
-                    st.session_state.forced_player = store.get("forced_player", None)
-                    st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
-                    st.session_state.timer_remaining = store.get("timer_remaining", 15)
-                    st.session_state.timer_end_time = store.get("timer_end_time", 0)
-                    st.session_state.timer_running = store.get("timer_running", False)
-                    
-                    st.session_state.live_bidding_team = store.get("live_bidding_team", "팀 1")
-                    st.session_state.live_bid_amount = store.get("live_bid_amount", 10)
-                    
-                    rc_val = st.session_state.get("reset_count", 0)
-                    st.session_state[f"bid_val_input_{rc_val}"] = st.session_state.live_bid_amount
-                    st.session_state[f"bidding_team_select_{rc_val}"] = st.session_state.live_bidding_team
-                    
-                    players_list = store.get("players", [])
-                    if players_list:
-                        df_rows = []
-                        for p in players_list:
-                            img_bytes = None
-                            if p["사진"]:
-                                try:
-                                    img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
-                                except Exception:
-                                    img_bytes = None
-                            status = p.get("상태", "대기중")
-                            tier = p.get("티어", 1)
-                            df_rows.append({"선수명": p["선수명"], "티어": tier, "상태": status, "사진": img_bytes})
-                        st.session_state.players = pd.DataFrame(df_rows)
-                    else:
-                        st.session_state.players = pd.DataFrame(columns=["선수명", "티어", "상태", "사진"])
+                st.session_state.num_teams = store.get("num_teams", 16)
+                st.session_state.max_roster_size = store.get("max_roster_size", 7)
+                st.session_state.initial_budget = store.get("initial_budget", 1000)
+                st.session_state.teams = store.get("teams", {})
+                st.session_state.custom_landmarks = store.get("custom_landmarks", DEFAULT_MAP_LANDMARKS)
+                st.session_state.history = store.get("history", [])
+                st.session_state.landmark_assignments = store.get("landmark_assignments", {})
+                st.session_state.current_player = store.get("current_player", None)
+                st.session_state.temp_bids = store.get("temp_bids", {})
+                st.session_state.forced_player = store.get("forced_player", None)
+                st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
+                st.session_state.timer_remaining = store.get("timer_remaining", 15)
+                st.session_state.timer_end_time = store.get("timer_end_time", 0)
+                st.session_state.timer_running = store.get("timer_running", False)
+                
+                players_list = store.get("players", [])
+                if players_list:
+                    df_rows = []
+                    for p in players_list:
+                        img_bytes = None
+                        if p["사진"]:
+                            try:
+                                img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
+                            except Exception:
+                                img_bytes = None
+                        df_rows.append({"선수명": p["선수명"], "티어": p.get("티어", 1), "상태": p.get("상태", "대기중"), "사진": img_bytes})
+                    st.session_state.players = pd.DataFrame(df_rows)
         except Exception:
             pass
 
 def do_reset_all_data():
-    empty_store = get_empty_store()
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(empty_store, f, ensure_ascii=False, indent=2)
-
-    new_rc = st.session_state.get("reset_count", 0) + 1
-
+    if os.path.exists(DATA_FILE):
+        os.remove(DATA_FILE)
     for key in list(st.session_state.keys()):
         del st.session_state[key]
-        
-    st.session_state.reset_count = new_rc
     init_defaults()
 
-# 입찰 금액 단축 버튼 콜백 함수
 def add_bid_amount(amount, max_limit):
-    rc_val = st.session_state.get("reset_count", 0)
-    bid_key = f"bid_val_input_{rc_val}"
-    cur_val = st.session_state.get(bid_key, st.session_state.get("live_bid_amount", 10))
-    new_val = min(max_limit, cur_val + amount)
-    
-    st.session_state[bid_key] = new_val
-    st.session_state["live_bid_amount"] = new_val
-    save_data_to_file()
+    st.session_state.bid_val = min(max_limit, st.session_state.bid_val + amount)
 
-def update_live_team():
-    rc_val = st.session_state.get("reset_count", 0)
-    st.session_state["live_bidding_team"] = st.session_state.get(f"bidding_team_select_{rc_val}", "팀 1")
-    save_data_to_file()
-
-def update_live_bid():
-    rc_val = st.session_state.get("reset_count", 0)
-    st.session_state["live_bid_amount"] = st.session_state.get(f"bid_val_input_{rc_val}", 10)
-    save_data_to_file()
-
-# 1. 안전하게 기본 세션 상태 초기화
+# 초기화
 init_defaults()
-
-# 2. 파일에서 최신 데이터 동기화
-sync_data_from_file_if_updated()
+if "data_loaded" not in st.session_state:
+    load_data_from_file()
+    st.session_state.data_loaded = True
 
 rc = st.session_state.reset_count
 
@@ -328,7 +242,6 @@ with tab_set:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader(f"👤 팀장 이름 설정 ({st.session_state.num_teams}개 팀)")
-        
         with st.form(key=f"team_names_form_{rc}"):
             new_names = {}
             for i in range(st.session_state.num_teams):
@@ -346,7 +259,6 @@ with tab_set:
 
     with col2:
         st.subheader("📝 선수 명단 및 티어/사진 추가")
-        
         with st.form(key=f"player_add_form_{rc}", clear_on_submit=True):
             p_col1, p_col2 = st.columns([2, 1])
             with p_col1:
@@ -403,20 +315,19 @@ with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 절대 타임스탬프 기반 카운트다운 타이머
+        # 1. 안정화된 타이머
         with st.container(border=True):
-            set_sec = st.session_state.get("timer_set_seconds", 15)
+            set_sec = st.session_state.timer_set_seconds
             now_time = time.time()
             
-            if st.session_state.get("timer_running", False):
-                end_time = st.session_state.get("timer_end_time", now_time)
+            if st.session_state.timer_running:
+                end_time = st.session_state.timer_end_time
                 rem = max(0, int(end_time - now_time))
                 if rem == 0:
                     st.session_state.timer_running = False
                     st.session_state.timer_remaining = 0
-                    save_data_to_file()
             else:
-                rem = int(st.session_state.get("timer_remaining", set_sec))
+                rem = st.session_state.timer_remaining
             
             t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
             t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
@@ -480,16 +391,8 @@ with tab_auction:
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
-                
-                custom_sec = st.number_input("직접 초 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1, key=f"custom_timer_sec_{rc}")
-                if custom_sec != st.session_state.timer_set_seconds:
-                    st.session_state.timer_set_seconds = custom_sec
-                    st.session_state.timer_remaining = custom_sec
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
 
-        # 2. 선수 선택 및 카드
+        # 2. 선수 선택 카드
         available_players = st.session_state.players[st.session_state.players["상태"] == "추첨완료"]
         if "티어" not in available_players.columns:
             available_players["티어"] = 1
@@ -549,7 +452,7 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 카드
+            # 3. 입찰 등록 카드 (즉각 반응)
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -561,28 +464,16 @@ with tab_auction:
                     st.markdown("##### 📌 입찰 등록")
                     
                     team_list = list(team_options.keys())
-                    cur_live_team = st.session_state.get("live_bidding_team", team_list[0])
-                    team_key = f"bidding_team_select_{rc}"
-                    
-                    if team_key not in st.session_state or st.session_state[team_key] not in team_list:
-                        st.session_state[team_key] = cur_live_team if cur_live_team in team_list else team_list[0]
-                    
                     bidding_team = st.selectbox(
                         "입찰할 팀 선택", 
                         team_list, 
                         format_func=lambda x: f"{x} ({st.session_state.teams[x]['name']}) - 잔액: {st.session_state.teams[x]['budget']}P", 
-                        key=team_key,
-                        on_change=update_live_team
+                        key=f"bidding_team_select_{rc}"
                     )
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
-                    bid_key = f"bid_val_input_{rc}"
                     
-                    if bid_key not in st.session_state:
-                        st.session_state[bid_key] = st.session_state.get("live_bid_amount", 10)
-                    
-                    st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key])
-                    
+                    # 입찰 버튼 4종 (+10P ~ +500P)
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
                     quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(10, max_b_limit))
                     quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(50, max_b_limit))
@@ -593,10 +484,11 @@ with tab_auction:
                         "입찰 금액(P)", 
                         min_value=0, 
                         max_value=max_b_limit, 
+                        value=min(max_b_limit, st.session_state.bid_val),
                         step=5,
-                        key=bid_key,
-                        on_change=update_live_bid
+                        key=f"bid_input_num_{rc}"
                     )
+                    st.session_state.bid_val = entered_bid
                     
                     if st.button("🚀 입찰 제출", type="primary", use_container_width=True, key=f"submit_bid_btn_{rc}"):
                         st.session_state.temp_bids[selected_player][bidding_team] = entered_bid
