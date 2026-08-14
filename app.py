@@ -40,13 +40,32 @@ st.markdown("""
     }
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         border-radius: 10px !important;
-        padding: 12px 14px !important;
+        padding: 10px 12px !important;
     }
     div[data-testid="stVerticalBlock"] {
-        gap: 0.4rem !important;
+        gap: 0.3rem !important;
     }
     div[data-testid="column"] {
-        padding: 0px 4px !important;
+        padding: 0px 3px !important;
+    }
+    /* 🔥 로스터 전용 텍스트 스타일 및 간격 최적화 */
+    .roster-item-text {
+        font-size: 13px !important;
+        line-height: 1.25 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        margin: 0 !important;
+        padding: 2px 0 !important;
+        color: #f3f4f6;
+    }
+    /* 로스터 내 취소 버튼 크기 축소 */
+    div[data-testid="stExpander"] div[data-testid="column"] button {
+        padding: 1px 4px !important;
+        font-size: 11px !important;
+        min-height: 22px !important;
+        height: 22px !important;
+        line-height: 1 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -469,7 +488,7 @@ def render_live_auction_left():
                 save_db_to_file()
                 st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
 
-# 🔥 [핵심 수정] 전체 경매 기록과 팀별 남은 예산 현황 위치 교체
+# ⚡ 우측 예산/로스터/기록 영역 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_right_panel():
     load_file_to_db()
@@ -501,9 +520,10 @@ def render_live_right_panel():
                             sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
                             with st.expander("로스터 보기", expanded=True):
                                 for member in sorted_roster:
-                                    c1, c2 = st.columns([3, 1])
+                                    # 🔥 [개선] 텍스트 컬럼 폭 확대 및 컴팩트 CSS 적용
+                                    c1, c2 = st.columns([3.8, 1.2])
                                     m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
-                                    c1.write(f"- {member['name']} ({m_tier_str}{member['bid']}P)")
+                                    c1.markdown(f"<div class='roster-item-text'>• <b>{member['name']}</b> ({m_tier_str}{member['bid']}P)</div>", unsafe_allow_html=True)
                                     if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
                                         t["budget"] += member["bid"]
                                         t["roster"].remove(member)
@@ -515,7 +535,7 @@ def render_live_right_panel():
     
     st.markdown("---")
     
-    # 🔥 2. [위치 변경] 전체 경매 기록 및 CSV 내보내기 (중단 배치)
+    # 2. 전체 경매 기록 및 CSV 내보내기
     hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
     hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
     btn_history_label = "간소화(숨기기)" if show_hst else "펼쳐보기"
@@ -563,7 +583,7 @@ def render_live_right_panel():
 
     st.markdown("---")
 
-    # 🔥 3. [위치 변경] 팀별 남은 예산 현황 (하단 배치)
+    # 3. 팀별 남은 예산 현황
     bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
     bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
     btn_budget_label = "간소화(숨기기)" if show_bgt else "펼쳐보기"
@@ -720,7 +740,8 @@ def render_live_landmark_tab():
 
 # 탭 2: 경매 진행
 with tab_auction:
-    col_left, col_right = st.columns([5, 6])
+    # 🔥 [수정] 좌측 경매 진행 세로열을 더 좁게(30%), 우측 로스터 세로열을 더 넓게(70%) 설정
+    col_left, col_right = st.columns([3, 7])
     
     with col_left:
         # ⚡ 경매 영역 실시간 연동 프래그먼트 호출
