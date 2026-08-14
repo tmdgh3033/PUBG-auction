@@ -85,12 +85,10 @@ def load_file_to_db():
 if "file_loaded" not in st.session_state:
     load_file_to_db()
     st.session_state.file_loaded = True
-    st.session_state.local_ver = global_db.get("version", 1)
 
 def save_db_to_file():
     try:
         global_db["version"] = global_db.get("version", 1) + 1
-        st.session_state.local_ver = global_db["version"]
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(dict(global_db), f, ensure_ascii=False, indent=2)
     except Exception:
@@ -126,23 +124,6 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
-# 실시간 변경 감시자 (파일 변경 시만 동기화)
-@st.fragment(run_every="2s")
-def check_server_sync():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                disk_data = json.load(f)
-                if disk_data.get("version", 1) > st.session_state.get("local_ver", 0):
-                    for k, v in disk_data.items():
-                        global_db[k] = v
-                    st.session_state.local_ver = disk_data["version"]
-                    st.rerun(scope="app")
-        except Exception:
-            pass
-
-check_server_sync()
-
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
 if "show_budget" not in st.session_state:
@@ -159,9 +140,8 @@ st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 # 우측 상단 수동 동기화 버튼
 header_col1, header_col2 = st.columns([5, 1])
 with header_col2:
-    if st.button("🔄 화면 새로고침", use_container_width=True):
+    if st.button("🔄 최신 상태 새로고침", use_container_width=True):
         load_file_to_db()
-        st.session_state.local_ver = global_db.get("version", 1)
         st.rerun()
 
 active_team_keys = [f"팀 {i}" for i in range(1, global_db["num_teams"] + 1)]
@@ -277,11 +257,14 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# JS 기반 타이머 렌더러 (파이썬 새로고침 없이 부드럽게 흐름)
-def render_js_timer(end_timestamp, total_set_seconds, is_running):
+# 렌더링용 단일 자바스크립트 타이머
+def render_js_timer(end_timestamp, default_seconds, is_running):
     now = time.time()
-    rem = max(0, int(end_timestamp - now)) if is_running else total_set_seconds
-    
+    if is_running and end_timestamp > now:
+        init_rem = max(0, int(end_timestamp - now))
+    else:
+        init_rem = default_seconds
+
     html_code = f"""
     <div style="
         background: linear-gradient(135deg, #1f2937, #111827);
@@ -294,10 +277,10 @@ def render_js_timer(end_timestamp, total_set_seconds, is_running):
         <div id="timer-text" style="
             font-size: 36px;
             font-weight: 800;
-            color: {'#10b981' if rem > 5 or not is_running else '#f87171'};
+            color: {'#10b981' if init_rem > 5 or not is_running else '#f87171'};
             letter-spacing: 1px;
         ">
-            {'⏰ 시간 종료!' if rem == 0 and is_running else f'{rem}초'}
+            {f'{init_rem}초' if not is_running or init_rem > 0 else '⏰ 시간 종료!'}
         </div>
     </div>
 
@@ -306,7 +289,7 @@ def render_js_timer(end_timestamp, total_set_seconds, is_running):
         var isRunning = {str(is_running).lower()};
         var timerText = document.getElementById('timer-text');
 
-        if (isRunning) {{
+        if (isRunning && endTs > 0) {{
             var interval = setInterval(function() {{
                 var now = new Date().getTime();
                 var distance = Math.ceil((endTs - now) / 1000);
@@ -381,7 +364,7 @@ with tab_auction:
                     st.markdown(f"### **{selected_player}**")
                     st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-            # 안정화된 JS 타이머 출력
+            # 타이머 출력
             render_js_timer(
                 global_db.get("timer_end_timestamp", 0), 
                 global_db.get("timer_set_seconds", 15), 
@@ -511,7 +494,6 @@ with tab_auction:
                             global_db["temp_bids"][selected_player] = {}
                         global_db["temp_bids"][selected_player][bidding_team] = entered_bid
                         
-                        # 입찰시 타이머 새로 세팅 및 자동 시작
                         global_db["timer_running"] = True
                         global_db["timer_end_timestamp"] = time.time() + global_db["timer_set_seconds"]
                         save_db_to_file()
