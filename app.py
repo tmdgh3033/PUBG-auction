@@ -268,7 +268,31 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# ⚡ [격리된 프래그먼트 1] 고정 7초 타이머만 1초 자동 연동 (깜빡임 없음)
+# 🔥 [수정] 공유 받는 화면에서도 선수 닉네임과 사진이 1초 내로 변경되도록 자동 동기화 적용
+@st.fragment(run_every="1s")
+def render_live_player_card():
+    load_file_to_db()
+    players_list = global_db.get("players", [])
+    cur_player = global_db.get("current_player")
+    
+    p_match = next((p for p in players_list if p["선수명"] == cur_player), None)
+    
+    if p_match:
+        p_tier_val = p_match.get("티어", 1)
+        p_img_b64 = p_match.get("사진")
+        with st.container(border=True):
+            p_col1, p_col2 = st.columns([1, 2])
+            with p_col1:
+                if p_img_b64:
+                    try:
+                        st.image(base64.b64decode(p_img_b64.encode("utf-8")), use_container_width=True)
+                    except Exception:
+                        pass
+            with p_col2:
+                st.markdown(f"### **{cur_player}**")
+                st.caption(f"티어 정보: **{p_tier_val}티어**")
+
+# ⚡ 고정 7초 타이머 1초 자동 연동
 @st.fragment(run_every="1s")
 def render_live_timer_display():
     load_file_to_db()
@@ -290,10 +314,11 @@ def render_live_timer_display():
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
     st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
 
-# ⚡ [격리된 프래그먼트 2] 실시간 입찰 현황 및 최고가만 1초 자동 연동
+# ⚡ 실시간 입찰 현황 및 최고가 1초 자동 연동
 @st.fragment(run_every="1s")
-def render_live_bids_display(selected_player):
+def render_live_bids_display():
     load_file_to_db()
+    selected_player = global_db.get("current_player")
     if selected_player:
         current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
         if current_bids:
@@ -312,7 +337,7 @@ def render_live_bids_display(selected_player):
                 top_bid = current_bids[top_team]
                 st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
-# ⚡ [격리된 프래그먼트 3] 우측 팀 예산 및 로스터만 1초 자동 연동
+# ⚡ 우측 팀 예산 및 로스터 1초 자동 연동
 @st.fragment(run_every="1s")
 def render_live_right_panel():
     load_file_to_db()
@@ -418,7 +443,7 @@ def render_live_right_panel():
                     key=f"download_csv_roster_{rc}"
                 )
 
-# ⚡ [격리된 프래그먼트 4] 랜드마크 결과표만 1초 자동 연동
+# ⚡ 랜드마크 결과표 1초 자동 연동
 @st.fragment(run_every="1s")
 def render_landmark_results(selected_map):
     load_file_to_db()
@@ -454,7 +479,6 @@ with tab_auction:
                 st.session_state[select_key] = waiting_list[0]
                 st.session_state["last_synced_player"] = waiting_list[0]
 
-            # 🛡️ 입력 위젯 (자주 깜빡이지 않도록 메인 스레드에 배치)
             selected_player = st.selectbox(
                 "🎯 경매 진행 대상 선택", 
                 waiting_list, 
@@ -472,20 +496,9 @@ with tab_auction:
 
             p_match = next((p for p in players_list if p["선수명"] == selected_player), None)
             p_tier_val = p_match.get("티어", 1) if p_match else 1
-            p_img_b64 = p_match.get("사진") if p_match else None
 
-            # 선수 프로필 카드는 안정적인 형태 유지
-            with st.container(border=True):
-                p_col1, p_col2 = st.columns([1, 2])
-                with p_col1:
-                    if p_img_b64:
-                        try:
-                            st.image(base64.b64decode(p_img_b64.encode("utf-8")), use_container_width=True)
-                        except Exception:
-                            pass
-                with p_col2:
-                    st.markdown(f"### **{selected_player}**")
-                    st.caption(f"티어 정보: **{p_tier_val}티어**")
+            # 🔥 [수정] 공유 받는 화면에서도 즉시 사진과 닉네임이 바뀌도록 실시간 프래그먼트 호출
+            render_live_player_card()
 
             # ⚡ 타이머만 1초 자동 연동 프래그먼트 호출
             render_live_timer_display()
@@ -564,7 +577,6 @@ with tab_auction:
                     quick_col3.button("+100P", key=f"btn_add_100_{rc}", on_click=add_bid_amount, args=(bid_num_key, 100, max_b_limit))
                     quick_col4.button("+500P", key=f"btn_add_500_{rc}", on_click=add_bid_amount, args=(bid_num_key, 500, max_b_limit))
                         
-                    # 🛡️ 입찰 금액 수기 입력창 (깜빡임 완전 제거)
                     entered_bid = st.number_input(
                         "입찰 금액(P)", 
                         min_value=0, 
@@ -585,7 +597,7 @@ with tab_auction:
                         st.rerun()
 
             # ⚡ 실시간 입찰 현황판만 1초 자동 연동 프래그먼트 호출
-            render_live_bids_display(selected_player)
+            render_live_bids_display()
 
             current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
             if current_bids:
@@ -737,5 +749,5 @@ with tab_landmark:
                 st.rerun()
 
     with col_lm2:
-        # ⚡ 랜드마크 결과표만 1초 자동 연동
+        # ⚡ 랜드마크 결과표 1초 자동 연동
         render_landmark_results(selected_map)
