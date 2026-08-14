@@ -5,14 +5,20 @@ import os
 import json
 import base64
 import time
+import threading
 from datetime import datetime
 
 st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
+# 🔥 동시 접속자 입찰 충돌 방지용 스레드 락 추가
+db_lock = threading.Lock()
 
 st.markdown("""
     <style>
+    * { -webkit-font-smoothing: antialiased; }
+    div[data-testid="stVerticalBlock"] { transition: none !important; }
+    .stSpinner, div[data-testid="stStatusWidget"] { display: none !important; }
     .block-container {
         padding-top: 3.5rem !important;
         padding-bottom: 1.5rem !important;
@@ -42,13 +48,8 @@ st.markdown("""
         border-radius: 10px !important;
         padding: 10px 12px !important;
     }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0.3rem !important;
-    }
-    div[data-testid="column"] {
-        padding: 0px 2px !important;
-    }
-    /* 🔥 로스터 텍스트 스타일 */
+    div[data-testid="stVerticalBlock"] { gap: 0.3rem !important; }
+    div[data-testid="column"] { padding: 0px 2px !important; }
     .roster-item-text {
         font-size: 13px !important;
         line-height: 20px !important;
@@ -59,7 +60,6 @@ st.markdown("""
         padding: 0 !important;
         color: #f3f4f6;
     }
-    /* 🔥 취소 버튼 크기를 글씨 높이에 딱 맞게 슬림화 */
     div[data-testid="stExpander"] div[data-testid="stButton"] {
         margin: 0 !important;
         padding: 0 !important;
@@ -98,9 +98,10 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
+# 🔥 [핵심 수정] 서버 실행 시 최초 1회만 파일에서 로드하여 RAM 메모리 데이터베이스 구축
 @st.cache_resource
 def get_global_db():
-    return {
+    init_data = {
         "num_teams": 16,
         "max_roster_size": 7,
         "initial_budget": 1000,
@@ -121,60 +122,58 @@ def get_global_db():
         "show_history": True,
         "version": 1
     }
-
-global_db = get_global_db()
-
-def load_file_to_db():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for k, v in data.items():
-                    global_db[k] = v
+                saved = json.load(f)
+                for k, v in saved.items():
+                    init_data[k] = v
         except Exception:
             pass
+    return init_data
 
-if "file_loaded" not in st.session_state:
-    load_file_to_db()
-    st.session_state.file_loaded = True
+global_db = get_global_db()
 
+# 데이터 변경 시 안전하게 파일에 백업 저장
 def save_db_to_file():
-    try:
-        global_db["version"] = global_db.get("version", 1) + 1
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(dict(global_db), f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    with db_lock:
+        try:
+            global_db["version"] = global_db.get("version", 1) + 1
+            with open(DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(dict(global_db), f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
 def do_reset_all_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            os.remove(DATA_FILE)
-        except Exception:
-            pass
-    global_db.clear()
-    global_db.update({
-        "num_teams": 16,
-        "max_roster_size": 7,
-        "initial_budget": 1000,
-        "teams": {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)},
-        "custom_landmarks": {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()},
-        "history": [],
-        "landmark_assignments": {},
-        "players": [],
-        "current_player": None,
-        "current_landmark_map": "에란겔 (Erangel)",
-        "temp_bids": {},
-        "forced_player": None,
-        "timer_set_seconds": 7,
-        "timer_end_timestamp": 0,
-        "timer_running": False,
-        "show_budget": True,
-        "show_roster": True,
-        "show_history": True,
-        "version": 1
-    })
-    save_db_to_file()
+    with db_lock:
+        if os.path.exists(DATA_FILE):
+            try:
+                os.remove(DATA_FILE)
+            except Exception:
+                pass
+        global_db.clear()
+        global_db.update({
+            "num_teams": 16,
+            "max_roster_size": 7,
+            "initial_budget": 1000,
+            "teams": {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)},
+            "custom_landmarks": {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()},
+            "history": [],
+            "landmark_assignments": {},
+            "players": [],
+            "current_player": None,
+            "current_landmark_map": "에란겔 (Erangel)",
+            "temp_bids": {},
+            "forced_player": None,
+            "timer_set_seconds": 7,
+            "timer_end_timestamp": 0,
+            "timer_running": False,
+            "show_budget": True,
+            "show_roster": True,
+            "show_history": True,
+            "version": 1
+        })
+        save_db_to_file()
 
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
@@ -296,10 +295,9 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# ⚡ 경매 진행 좌측 영역 프래그먼트
+# ⚡ 경매 진행 좌측 영역 프래그먼트 (RAM 메모리에서 바로 조회)
 @st.fragment(run_every="1s")
 def render_live_auction_left():
-    load_file_to_db()
     players_list = global_db.get("players", [])
     waiting_players = [p for p in players_list if p.get("상태") == "추첨완료"]
     waiting_players.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
@@ -430,7 +428,6 @@ def render_live_auction_left():
 
                 if st.button(f"👑 '{top_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
                     team_budget = global_db["teams"][top_team]["budget"]
-                    # 🔥 [수정] 낙찰 확정 시 동일 티어 보유 여부 재확인
                     team_roster = global_db["teams"][top_team]["roster"]
                     has_same_tier = any(m.get("tier") == p_tier_val for m in team_roster)
                     
@@ -464,7 +461,6 @@ def render_live_auction_left():
                         st.success(f"🎉 '{selected_player}' 선수가 {top_team}팀에 낙찰 완료되었습니다!")
 
     # 4. 입찰 등록 양식
-    # 🔥 [핵심 수정] 팀 최대 인원 미만 AND 이미 해당 티어(p_tier_val) 선수가 없는 팀만 입찰 가능
     team_options = {
         k: global_db["teams"][k] 
         for k in active_team_keys 
@@ -509,11 +505,9 @@ def render_live_auction_left():
     else:
         st.warning(f"⚠️ 현재 {p_tier_val}티어 선수를 입찰할 수 있는 팀이 없습니다.\n(모든 팀이 이미 {p_tier_val}티어 선수를 보유 중이거나 팀 인원이 가득 찼습니다.)")
 
-# ⚡ 우측 예산/로스터/기록 영역 프래그먼트
+# ⚡ 우측 예산/로스터/기록 영역 프래그먼트 (RAM 메모리 바로 조회)
 @st.fragment(run_every="1s")
 def render_live_right_panel():
-    load_file_to_db()
-    
     show_bgt = global_db.get("show_budget", True)
     show_rst = global_db.get("show_roster", True)
     show_hst = global_db.get("show_history", True)
@@ -624,7 +618,6 @@ def render_live_right_panel():
 # ⚡ 랜덤 선수 추첨 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_random_pick():
-    load_file_to_db()
     st.subheader("🎲 대기 중인 선수 중 랜덤 추첨")
     st.write("1티어~N티어 순으로 미추첨 선수를 우선 추첨하며, 신규 선수가 모두 소진된 후 유찰 선수들이 추첨됩니다.")
     
@@ -684,8 +677,6 @@ def render_live_random_pick():
 # ⚡ 랜드마크 탭 실시간 연동 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_landmark_tab():
-    load_file_to_db()
-    
     map_keys = list(global_db["custom_landmarks"].keys())
     select_map_key = f"selected_map_box_{rc}"
     srv_map = global_db.get("current_landmark_map", "에란겔 (Erangel)")
@@ -763,11 +754,9 @@ with tab_auction:
     col_left, col_right = st.columns([3, 7])
     
     with col_left:
-        # ⚡ 경매 영역 실시간 연동 프래그먼트 호출
         render_live_auction_left()
 
     with col_right:
-        # ⚡ 우측 예산/로스터 패널 실시간 1초 자동 연동
         render_live_right_panel()
 
 # 탭 3: 랜덤 선수 추첨 페이지
@@ -777,6 +766,4 @@ with tab_random:
 # 탭 4: 🗺️ 랜드마크 추첨 페이지
 with tab_landmark:
     st.subheader(f"🗺️ 맵별 팀 랜드마크 랜덤 배정 ({global_db['num_teams']}개 팀)")
-    
-    # ⚡ 랜드마크 탭 실시간 전체 연동 프래그먼트 호출
     render_live_landmark_tab()
