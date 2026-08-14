@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
@@ -18,25 +19,6 @@ st.markdown("""
         padding-bottom: 1.5rem !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
-    }
-    .timer-container {
-        background: linear-gradient(135deg, #1f2937, #111827);
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 12px;
-        text-align: center;
-        margin-bottom: 10px;
-    }
-    .timer-display {
-        font-size: 36px;
-        font-weight: 800;
-        color: #10b981;
-        letter-spacing: 1px;
-    }
-    .timer-display-warn {
-        font-size: 36px;
-        font-weight: 800;
-        color: #f87171;
     }
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         border-radius: 10px !important;
@@ -68,7 +50,6 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
-# --- 1. 실시간 서버 전역 DB (@st.cache_resource) ---
 @st.cache_resource
 def get_global_db():
     return {
@@ -84,9 +65,8 @@ def get_global_db():
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 15,
-        "timer_remaining": 15,
+        "timer_end_timestamp": 0,
         "timer_running": False,
-        "last_timer_update": time.time(),
         "version": 1
     }
 
@@ -136,9 +116,8 @@ def do_reset_all_data():
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 15,
-        "timer_remaining": 15,
+        "timer_end_timestamp": 0,
         "timer_running": False,
-        "last_timer_update": time.time(),
         "version": 1
     })
     save_db_to_file()
@@ -147,24 +126,22 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
-# 🔥 [실시간 변경 사항 서버 와처 - 데이터가 달라질 때만 동기화]
-@st.fragment(run_every="1s")
-def sync_watcher():
+# 실시간 변경 감시자 (파일 변경 시만 동기화)
+@st.fragment(run_every="2s")
+def check_server_sync():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 disk_data = json.load(f)
-                disk_ver = disk_data.get("version", 1)
-                local_ver = st.session_state.get("local_ver", 0)
-                if disk_ver > local_ver:
+                if disk_data.get("version", 1) > st.session_state.get("local_ver", 0):
                     for k, v in disk_data.items():
                         global_db[k] = v
-                    st.session_state.local_ver = disk_ver
+                    st.session_state.local_ver = disk_data["version"]
                     st.rerun(scope="app")
         except Exception:
             pass
 
-sync_watcher()
+check_server_sync()
 
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
@@ -178,6 +155,14 @@ if "show_history" not in st.session_state:
 rc = st.session_state.reset_count
 
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
+
+# 우측 상단 수동 동기화 버튼
+header_col1, header_col2 = st.columns([5, 1])
+with header_col2:
+    if st.button("🔄 화면 새로고침", use_container_width=True):
+        load_file_to_db()
+        st.session_state.local_ver = global_db.get("version", 1)
+        st.rerun()
 
 active_team_keys = [f"팀 {i}" for i in range(1, global_db["num_teams"] + 1)]
 
@@ -292,37 +277,63 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [타이머 카운트다운 프래그먼트 - 튀지 않는 연산 방식 적용]
-@st.fragment(run_every="1s")
-def render_timer_display():
-    set_sec = global_db.get("timer_set_seconds", 15)
-    is_running = global_db.get("timer_running", False)
-    rem_sec = global_db.get("timer_remaining", set_sec)
-    last_upd = global_db.get("last_timer_update", time.time())
+# JS 기반 타이머 렌더러 (파이썬 새로고침 없이 부드럽게 흐름)
+def render_js_timer(end_timestamp, total_set_seconds, is_running):
     now = time.time()
+    rem = max(0, int(end_timestamp - now)) if is_running else total_set_seconds
     
-    if is_running:
-        elapsed = int(now - last_upd)
-        if elapsed >= 1:
-            rem_sec = max(0, rem_sec - elapsed)
-            global_db["timer_remaining"] = rem_sec
-            global_db["last_timer_update"] = now
-            if rem_sec == 0:
-                global_db["timer_running"] = False
-            save_db_to_file()
-            
-    t_disp_class = "timer-display-warn" if rem_sec <= 5 and rem_sec > 0 else "timer-display"
-    t_msg = f"{rem_sec}초" if rem_sec > 0 else "⏰ 시간 종료!"
+    html_code = f"""
+    <div style="
+        background: linear-gradient(135deg, #1f2937, #111827);
+        border: 1px solid #374151;
+        border-radius: 12px;
+        padding: 12px;
+        text-align: center;
+        font-family: sans-serif;
+    ">
+        <div id="timer-text" style="
+            font-size: 36px;
+            font-weight: 800;
+            color: {'#10b981' if rem > 5 or not is_running else '#f87171'};
+            letter-spacing: 1px;
+        ">
+            {'⏰ 시간 종료!' if rem == 0 and is_running else f'{rem}초'}
+        </div>
+    </div>
 
-    st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
-    st.progress(max(0.0, min(1.0, rem_sec / set_sec)) if set_sec > 0 else 0.0)
+    <script>
+        var endTs = {end_timestamp * 1000};
+        var isRunning = {str(is_running).lower()};
+        var timerText = document.getElementById('timer-text');
+
+        if (isRunning) {{
+            var interval = setInterval(function() {{
+                var now = new Date().getTime();
+                var distance = Math.ceil((endTs - now) / 1000);
+
+                if (distance <= 0) {{
+                    clearInterval(interval);
+                    timerText.innerHTML = "⏰ 시간 종료!";
+                    timerText.style.color = "#f87171";
+                }} else {{
+                    timerText.innerHTML = distance + "초";
+                    if (distance <= 5) {{
+                        timerText.style.color = "#f87171";
+                    }} else {{
+                        timerText.style.color = "#10b981";
+                    }}
+                }}
+            }}, 200);
+        }}
+    </script>
+    """
+    components.html(html_code, height=90)
 
 # 탭 2: 경매 진행
 with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 진행자 선수 선택 Box
         players_list = global_db.get("players", [])
         waiting_players = [p for p in players_list if p.get("상태") == "추첨완료"]
         waiting_players.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
@@ -351,13 +362,12 @@ with tab_auction:
             if global_db.get("current_player") != selected_player:
                 global_db["current_player"] = selected_player
                 global_db["timer_running"] = False
-                global_db["timer_remaining"] = global_db["timer_set_seconds"]
+                global_db["timer_end_timestamp"] = 0
                 if selected_player not in global_db["temp_bids"]:
                     global_db["temp_bids"][selected_player] = {}
                 save_db_to_file()
                 st.rerun()
 
-            # 2. 선수 카드
             p_img_b64 = p_match.get("사진") if p_match else None
             with st.container(border=True):
                 p_col1, p_col2 = st.columns([1, 2])
@@ -371,10 +381,13 @@ with tab_auction:
                     st.markdown(f"### **{selected_player}**")
                     st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-            # 3. 실시간 안정화 타이머
-            render_timer_display()
+            # 안정화된 JS 타이머 출력
+            render_js_timer(
+                global_db.get("timer_end_timestamp", 0), 
+                global_db.get("timer_set_seconds", 15), 
+                global_db.get("timer_running", False)
+            )
 
-            # 4. 타이머 제어 및 수기 입력 카드
             with st.container(border=True):
                 col_ctrl1, col_ctrl2 = st.columns(2)
                 with col_ctrl1:
@@ -401,7 +414,7 @@ with tab_auction:
                     if not global_db.get("timer_running", False):
                         if st.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
                             global_db["timer_running"] = True
-                            global_db["last_timer_update"] = time.time()
+                            global_db["timer_end_timestamp"] = time.time() + global_db["timer_set_seconds"]
                             save_db_to_file()
                             st.rerun()
                     else:
@@ -413,12 +426,13 @@ with tab_auction:
                 t_b1, t_b2 = st.columns(2)
                 if t_b1.button("🔄 타이머 리셋", use_container_width=True, key=f"timer_reset_btn_{rc}"):
                     global_db["timer_running"] = False
-                    global_db["timer_remaining"] = global_db["timer_set_seconds"]
+                    global_db["timer_end_timestamp"] = 0
                     save_db_to_file()
                     st.rerun()
                 if t_b2.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
                     global_db["timer_set_seconds"] += 5
-                    global_db["timer_remaining"] += 5
+                    if global_db.get("timer_running", False):
+                        global_db["timer_end_timestamp"] += 5
                     save_db_to_file()
                     st.rerun()
 
@@ -426,25 +440,21 @@ with tab_auction:
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
                         global_db["timer_set_seconds"] = 10
-                        global_db["timer_remaining"] = 10
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
                         global_db["timer_set_seconds"] = 15
-                        global_db["timer_remaining"] = 15
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
                         global_db["timer_set_seconds"] = 30
-                        global_db["timer_remaining"] = 30
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
                         global_db["timer_set_seconds"] = 60
-                        global_db["timer_remaining"] = 60
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
@@ -452,12 +462,10 @@ with tab_auction:
                     custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=global_db["timer_set_seconds"], step=1, key=f"custom_timer_sec_{rc}")
                     if custom_sec != global_db["timer_set_seconds"]:
                         global_db["timer_set_seconds"] = custom_sec
-                        global_db["timer_remaining"] = custom_sec
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
 
-            # 5. 입찰 등록 및 낙찰 확정
             team_options = {
                 k: global_db["teams"][k] 
                 for k in active_team_keys 
@@ -503,10 +511,9 @@ with tab_auction:
                             global_db["temp_bids"][selected_player] = {}
                         global_db["temp_bids"][selected_player][bidding_team] = entered_bid
                         
-                        # 입찰 제출 시 타이머 리셋 후 자동으로 시작
-                        global_db["timer_remaining"] = global_db["timer_set_seconds"]
+                        # 입찰시 타이머 새로 세팅 및 자동 시작
                         global_db["timer_running"] = True
-                        global_db["last_timer_update"] = time.time()
+                        global_db["timer_end_timestamp"] = time.time() + global_db["timer_set_seconds"]
                         save_db_to_file()
                         st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
@@ -559,7 +566,6 @@ with tab_auction:
                                 st.rerun()
 
     with col_right:
-        # 1. 팀별 남은 예산 현황
         bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
         bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
         btn_budget_label = "간소화(숨기기)" if st.session_state.show_budget else "펼쳐보기"
@@ -579,7 +585,6 @@ with tab_auction:
         
         st.markdown("---")
         
-        # 2. 팀 로스터 현황
         rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
         rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
         btn_roster_label = "간소화(숨기기)" if st.session_state.show_roster else "펼쳐보기"
@@ -617,7 +622,6 @@ with tab_auction:
         
         st.markdown("---")
         
-        # 3. 전체 경매 기록
         hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
         hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
         btn_history_label = "간소화(숨기기)" if st.session_state.show_history else "펼쳐보기"
