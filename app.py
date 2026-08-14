@@ -171,6 +171,10 @@ def do_reset_all_data():
         except Exception:
             pass
             
+    # 전체 세션 상태 완벽 초기화
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+        
     st.session_state.num_teams = 16
     st.session_state.max_roster_size = 7
     st.session_state.initial_budget = 1000
@@ -186,11 +190,6 @@ def do_reset_all_data():
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
     
-    # 폼 관련 및 세션 키 초기화
-    for key in list(st.session_state.keys()):
-        if key.startswith("form_team_input_") or key.startswith("team_name_input_"):
-            del st.session_state[key]
-            
     save_data_to_file()
 
 load_data_from_file()
