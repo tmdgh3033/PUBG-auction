@@ -292,7 +292,7 @@ def render_live_player_card():
                 st.markdown(f"### **{cur_player}**")
                 st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-# 🔥 [수정] 유찰 및 타이머 버튼 클릭 시 전체 새로고침(F5)을 방지하기 위해 타이머 영역 내부로 전격 격리
+# ⚡ 고정 7초 타이머 및 제어 버튼 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_timer_display(selected_player, p_tier_val):
     load_file_to_db()
@@ -314,7 +314,6 @@ def render_live_timer_display(selected_player, p_tier_val):
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
     st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
 
-    # 타이머 및 유찰 버튼들 (F5 없이 해당 부분만 깔끔하게 동작)
     with st.container(border=True):
         col_ctrl1, col_ctrl2 = st.columns(2)
         with col_ctrl1:
@@ -352,7 +351,7 @@ def render_live_timer_display(selected_player, p_tier_val):
             global_db["timer_end_timestamp"] = 0
             save_db_to_file()
 
-# 🔥 [수정] 실시간 입찰 현황 및 낙찰 확정 버튼 1초 자동 연동 프래그먼트
+# ⚡ 실시간 입찰 현황판 및 낙찰 확정 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_bids_display(selected_player, p_tier_val):
     load_file_to_db()
@@ -374,7 +373,6 @@ def render_live_bids_display(selected_player, p_tier_val):
                 top_bid = current_bids[top_team]
                 st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
-                # 낙찰 확정 버튼 (F5 깜빡임 없이 내부 동작)
                 if st.button(f"👑 '{top_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
                     team_budget = global_db["teams"][top_team]["budget"]
                     if top_bid > team_budget:
@@ -513,16 +511,101 @@ def render_live_right_panel():
                     key=f"download_csv_roster_{rc}"
                 )
 
-# ⚡ 랜드마크 결과표 1초 자동 연동
+# 🔥 [핵심 수정] 랜덤 선수 추첨 전체를 프래그먼트로 감싸서 클릭 시 F5 깜빡임 방지
 @st.fragment(run_every="1s")
-def render_landmark_results(selected_map):
+def render_live_random_pick():
     load_file_to_db()
-    st.markdown(f"##### 🏆 {selected_map} 팀별 배정 결과")
-    if selected_map in global_db.get("landmark_assignments", {}):
-        res_df = pd.DataFrame(global_db["landmark_assignments"][selected_map])
-        st.table(res_df)
+    st.subheader("🎲 대기 중인 선수 중 랜덤 추첨")
+    st.write("1티어~N티어 순으로 미추첨 선수를 우선 추첨하며, 신규 선수가 모두 소진된 후 유찰 선수들이 추첨됩니다.")
+    
+    players_list = global_db.get("players", [])
+    new_waiting = [p for p in players_list if p.get("상태") == "대기중"]
+    passed_waiting = [p for p in players_list if p.get("상태") == "유찰"]
+    
+    new_waiting.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
+    passed_waiting.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
+    
+    num_new = len(new_waiting)
+    num_passed = len(passed_waiting)
+    
+    if num_new > 0 or num_passed > 0:
+        if num_new > 0:
+            st.info(f"현재 추첨 가능: **신규 대기 선수 {num_new}명** (티어 순 무작위 뽑기)")
+        else:
+            st.warning(f"신규 대기 선수가 모두 소진되었습니다! **유찰 대기 선수 {num_passed}명** 중에서 추첨합니다.")
+            
+        if st.button("🎲 랜덤 선수 뽑기 돌리기!", type="primary", use_container_width=True, key=f"random_pick_btn_{rc}"):
+            chosen_obj = random.choice(new_waiting) if num_new > 0 else random.choice(passed_waiting)
+            chosen_name = chosen_obj["선수명"]
+            
+            global_db["forced_player"] = chosen_name
+            global_db["current_player"] = chosen_name
+            
+            select_key = f"selected_auction_player_{rc}"
+            st.session_state[select_key] = chosen_name
+            
+            for p in global_db["players"]:
+                if p["선수명"] == chosen_name:
+                    p["상태"] = "추첨완료"
+            save_db_to_file()
+            st.success(f"🎉 '{chosen_name}' 선수가 추첨되었습니다!")
     else:
-        st.info("아직 추첨 결과가 없습니다. 왼쪽의 [🎲 랜드마크 전체 추첨!] 버튼을 눌러주세요.")
+        st.success("🎉 모든 선수가 추첨되었습니다!")
+        
+    if global_db.get("forced_player"):
+        st.markdown("---")
+        st.markdown("### 🎰 이번에 뽑힌 경매 대상자")
+        
+        f_name = global_db["forced_player"]
+        f_match = next((p for p in players_list if p["선수명"] == f_name), None)
+        f_tier = f_match.get("티어", 1) if f_match else 1
+        f_img_b64 = f_match.get("사진") if f_match else None
+        
+        if f_img_b64:
+            try:
+                st.image(base64.b64decode(f_img_b64.encode("utf-8")), width=240, caption=f_name)
+            except Exception:
+                pass
+            
+        st.markdown(f"## **{f_name}** ({f_tier}티어) 🎉")
+        st.write("상단 **[경매 진행]** 탭으로 이동하시면 해당 선수가 자동으로 선택되어 있습니다!")
+
+# 🔥 [핵심 수정] 랜드마크 추첨 영역 전체를 프래그먼트로 감싸서 클릭 시 F5 깜빡임 방지
+@st.fragment(run_every="1s")
+def render_live_landmark_draw(selected_map):
+    load_file_to_db()
+    col_lm1, col_lm2 = st.columns([1, 1])
+    
+    with col_lm1:
+        lm_list = global_db["custom_landmarks"].get(selected_map, [])
+        st.markdown(f"##### 📌 {selected_map} 주요 랜드마크 목록 ({len(lm_list)}개)")
+        st.dataframe(pd.DataFrame({"번호": range(1, len(lm_list) + 1), "랜드마크": lm_list}), hide_index=True, height=350)
+        
+        if st.button(f"🎲 {global_db['num_teams']}개 팀 랜드마크 전체 추첨!", type="primary", use_container_width=True, key=f"draw_landmark_btn_{rc}"):
+            if len(lm_list) < global_db["num_teams"]:
+                st.error(f"⚠️ 랜드마크 개수({len(lm_list)}개)가 팀 수({global_db['num_teams']}개)보다 적어 추첨할 수 없습니다! 상단 편집기에서 랜드마크를 추가해 주세요.")
+            else:
+                shuffled_landmarks = random.sample(lm_list, global_db["num_teams"])
+                assignments = []
+                for i in range(global_db["num_teams"]):
+                    t_key = f"팀 {i+1}"
+                    t_name = global_db["teams"].get(t_key, {}).get("name", "")
+                    t_display = f"{t_key} ({t_name})" if t_name else t_key
+                    assignments.append({
+                        "팀": t_display,
+                        "배정된 랜드마크": shuffled_landmarks[i]
+                    })
+                global_db["landmark_assignments"][selected_map] = assignments
+                save_db_to_file()
+                st.success("🎉 랜드마크 추첨이 완료되었습니다!")
+
+    with col_lm2:
+        st.markdown(f"##### 🏆 {selected_map} 팀별 배정 결과")
+        if selected_map in global_db.get("landmark_assignments", {}):
+            res_df = pd.DataFrame(global_db["landmark_assignments"][selected_map])
+            st.table(res_df)
+        else:
+            st.info("아직 추첨 결과가 없습니다. 왼쪽의 [🎲 랜드마크 전체 추첨!] 버튼을 눌러주세요.")
 
 # 탭 2: 경매 진행
 with tab_auction:
@@ -570,7 +653,7 @@ with tab_auction:
             # 실시간 선수 프로필 카드 및 자동 동기화
             render_live_player_card()
 
-            # ⚡ 고정 7초 타이머 및 제어 버튼 프래그먼트 (새로고침 없이 내부 동작)
+            # ⚡ 고정 7초 타이머 및 제어 버튼 프래그먼트
             render_live_timer_display(selected_player, p_tier_val)
 
             team_options = {
@@ -623,60 +706,7 @@ with tab_auction:
 
 # 탭 3: 랜덤 선수 추첨 페이지
 with tab_random:
-    st.subheader("🎲 대기 중인 선수 중 랜덤 추첨")
-    st.write("1티어~N티어 순으로 미추첨 선수를 우선 추첨하며, 신규 선수가 모두 소진된 후 유찰 선수들이 추첨됩니다.")
-    
-    players_list = global_db.get("players", [])
-    new_waiting = [p for p in players_list if p.get("상태") == "대기중"]
-    passed_waiting = [p for p in players_list if p.get("상태") == "유찰"]
-    
-    new_waiting.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
-    passed_waiting.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
-    
-    num_new = len(new_waiting)
-    num_passed = len(passed_waiting)
-    
-    if num_new > 0 or num_passed > 0:
-        if num_new > 0:
-            st.info(f"현재 추첨 가능: **신규 대기 선수 {num_new}명** (티어 순 무작위 뽑기)")
-        else:
-            st.warning(f"신규 대기 선수가 모두 소진되었습니다! **유찰 대기 선수 {num_passed}명** 중에서 추첨합니다.")
-            
-        if st.button("🎲 랜덤 선수 뽑기 돌리기!", type="primary", use_container_width=True, key=f"random_pick_btn_{rc}"):
-            chosen_obj = random.choice(new_waiting) if num_new > 0 else random.choice(passed_waiting)
-            chosen_name = chosen_obj["선수명"]
-            
-            global_db["forced_player"] = chosen_name
-            global_db["current_player"] = chosen_name
-            
-            select_key = f"selected_auction_player_{rc}"
-            st.session_state[select_key] = chosen_name
-            
-            for p in global_db["players"]:
-                if p["선수명"] == chosen_name:
-                    p["상태"] = "추첨완료"
-            save_db_to_file()
-            st.rerun()
-    else:
-        st.success("🎉 모든 선수가 추첨되었습니다!")
-        
-    if global_db.get("forced_player"):
-        st.markdown("---")
-        st.markdown("### 🎰 이번에 뽑힌 경매 대상자")
-        
-        f_name = global_db["forced_player"]
-        f_match = next((p for p in players_list if p["선수명"] == f_name), None)
-        f_tier = f_match.get("티어", 1) if f_match else 1
-        f_img_b64 = f_match.get("사진") if f_match else None
-        
-        if f_img_b64:
-            try:
-                st.image(base64.b64decode(f_img_b64.encode("utf-8")), width=240, caption=f_name)
-            except Exception:
-                pass
-            
-        st.markdown(f"## **{f_name}** ({f_tier}티어) 🎉")
-        st.write("상단 **[경매 진행]** 탭으로 이동하시면 해당 선수가 자동으로 선택되어 있습니다!")
+    render_live_random_pick()
 
 # 탭 4: 🗺️ 랜드마크 추첨 페이지
 with tab_landmark:
@@ -705,31 +735,5 @@ with tab_landmark:
 
     st.markdown("---")
     
-    col_lm1, col_lm2 = st.columns([1, 1])
-    
-    with col_lm1:
-        lm_list = global_db["custom_landmarks"].get(selected_map, [])
-        st.markdown(f"##### 📌 {selected_map} 주요 랜드마크 목록 ({len(lm_list)}개)")
-        st.dataframe(pd.DataFrame({"번호": range(1, len(lm_list) + 1), "랜드마크": lm_list}), hide_index=True, height=350)
-        
-        if st.button(f"🎲 {global_db['num_teams']}개 팀 랜드마크 전체 추첨!", type="primary", use_container_width=True, key=f"draw_landmark_btn_{rc}"):
-            if len(lm_list) < global_db["num_teams"]:
-                st.error(f"⚠️ 랜드마크 개수({len(lm_list)}개)가 팀 수({global_db['num_teams']}개)보다 적어 추첨할 수 없습니다! 상단 편집기에서 랜드마크를 추가해 주세요.")
-            else:
-                shuffled_landmarks = random.sample(lm_list, global_db["num_teams"])
-                assignments = []
-                for i in range(global_db["num_teams"]):
-                    t_key = f"팀 {i+1}"
-                    t_name = global_db["teams"].get(t_key, {}).get("name", "")
-                    t_display = f"{t_key} ({t_name})" if t_name else t_key
-                    assignments.append({
-                        "팀": t_display,
-                        "배정된 랜드마크": shuffled_landmarks[i]
-                    })
-                global_db["landmark_assignments"][selected_map] = assignments
-                save_db_to_file()
-                st.rerun()
-
-    with col_lm2:
-        # ⚡ 랜드마크 결과표 1초 자동 연동
-        render_landmark_results(selected_map)
+    # ⚡ 랜드마크 추첨 프래그먼트 (새로고침 없이 실시간 동작)
+    render_live_landmark_draw(selected_map)
