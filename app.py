@@ -138,10 +138,6 @@ def do_reset_all_data():
     })
     save_db_to_file()
 
-def add_bid_amount(target_key, amount, max_limit):
-    cur_val = st.session_state.get(target_key, 10)
-    st.session_state[target_key] = min(max_limit, cur_val + amount)
-
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
 if "show_budget" not in st.session_state:
@@ -268,14 +264,13 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [핵심 수정] 서버 대상 선수 변경 시 관전자 화면 자동 전체 갱신 트리거
+# ⚡ 서버 대상 선수 변경 시 관전자 화면 자동 연동
 @st.fragment(run_every="1s")
 def render_live_player_card():
     load_file_to_db()
     players_list = global_db.get("players", [])
     cur_player = global_db.get("current_player")
     
-    # 서버 선수가 관전자 화면의 세션 정보와 다르면 자동으로 1회 rerun 실행하여 드롭다운 및 전체 화면 동기화
     if cur_player and st.session_state.get("last_synced_player") != cur_player:
         st.session_state["last_synced_player"] = cur_player
         st.rerun()
@@ -502,10 +497,10 @@ with tab_auction:
             p_match = next((p for p in players_list if p["선수명"] == selected_player), None)
             p_tier_val = p_match.get("티어", 1) if p_match else 1
 
-            # 실시간 선수 프로필 카드 및 자동 동기화 트리거
+            # 실시간 선수 프로필 카드 및 자동 동기화
             render_live_player_card()
 
-            # ⚡ 타이머 1초 자동 연동 프래그먼트 호출
+            # ⚡ 타이머 1초 자동 연동
             render_live_timer_display()
 
             # 타이머 제어 버튼
@@ -557,7 +552,8 @@ with tab_auction:
             }
             
             if team_options:
-                with st.container(border=True):
+                # 🔥 [핵심 수정] st.form으로 입찰 입력 영역 보호 (수동 타이핑 시 새로고침 방지)
+                with st.form(key=f"bidding_form_{rc}"):
                     st.markdown("##### 📌 입찰 등록")
                     
                     team_list = list(team_options.keys())
@@ -569,28 +565,19 @@ with tab_auction:
                     )
                     
                     max_b_limit = global_db["teams"][bidding_team]["budget"]
-                    bid_num_key = f"bid_input_num_{rc}"
                     
-                    if bid_num_key not in st.session_state:
-                        st.session_state[bid_num_key] = 10
-
-                    st.session_state[bid_num_key] = min(max_b_limit, max(0, st.session_state[bid_num_key]))
-                    
-                    quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
-                    quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(bid_num_key, 10, max_b_limit))
-                    quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(bid_num_key, 50, max_b_limit))
-                    quick_col3.button("+100P", key=f"btn_add_100_{rc}", on_click=add_bid_amount, args=(bid_num_key, 100, max_b_limit))
-                    quick_col4.button("+500P", key=f"btn_add_500_{rc}", on_click=add_bid_amount, args=(bid_num_key, 500, max_b_limit))
-                        
                     entered_bid = st.number_input(
                         "입찰 금액(P)", 
                         min_value=0, 
                         max_value=max_b_limit, 
+                        value=10,
                         step=5,
-                        key=bid_num_key
+                        key=f"bid_input_num_{rc}"
                     )
                     
-                    if st.button("🚀 입찰 제출", type="primary", use_container_width=True, key=f"submit_bid_btn_{rc}"):
+                    submit_bid = st.form_submit_button("🚀 입찰 제출", type="primary", use_container_width=True)
+                    
+                    if submit_bid:
                         if selected_player not in global_db["temp_bids"]:
                             global_db["temp_bids"][selected_player] = {}
                         global_db["temp_bids"][selected_player][bidding_team] = entered_bid
@@ -601,7 +588,7 @@ with tab_auction:
                         st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
 
-            # ⚡ 실시간 입찰 현황판 1초 자동 연동 프래그먼트 호출
+            # ⚡ 실시간 입찰 현황판 1초 자동 연동
             render_live_bids_display()
 
             current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
