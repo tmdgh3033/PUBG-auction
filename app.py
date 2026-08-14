@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 import random
 import os
@@ -193,7 +194,7 @@ def reset_all_data():
         
     save_data_to_file()
 
-# 데이터 로드 및 초기화
+# 파일 데이터 로드
 load_data_from_file()
 
 if "initialized" not in st.session_state:
@@ -207,25 +208,15 @@ if "initialized" not in st.session_state:
         st.session_state.show_history = True
     st.session_state.initialized = True
 
-# 상단 실시간 동기화 토글 스위치 및 타이머 스크립트
 sync_col1, sync_col2 = st.columns([4, 1])
 with sync_col1:
     st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 with sync_col2:
-    auto_sync = st.toggle("🔄 실시간 동기화", value=True, help="켜두면 다른 사용자의 입찰 및 경매 진행 상태가 2초마다 자동 동기화됩니다.")
+    auto_sync = st.toggle("🔄 부드러운 실시간 동기화", value=True, help="켜두면 전체 화면 새로고침 없이 다른 사람의 입찰 내역만 부드럽게 가져옵니다.")
 
-# 자동 새로고침 메커니즘 (2초 마다)
+# 브라우저 깜빡임 없는 리프레시 컴포넌트 적용 (2초 단위)
 if auto_sync and not st.session_state.get("timer_running", False):
-    components.html(
-        """
-        <script>
-        setTimeout(function(){
-            window.parent.location.reload();
-        }, 2000);
-        </script>
-        """,
-        height=0
-    )
+    st_autorefresh(interval=2000, limit=None, key="smooth_autorefresh")
 
 active_team_keys = [f"팀 {i}" for i in range(1, st.session_state.num_teams + 1)]
 
