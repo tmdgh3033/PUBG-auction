@@ -111,7 +111,6 @@ def save_data_to_file():
         "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
         "timer_remaining": st.session_state.get("timer_remaining", 15),
         "timer_running": st.session_state.get("timer_running", False),
-        "bid_val_state": st.session_state.get("bid_val_state", 10),
         "last_updated": time.time()
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -136,8 +135,6 @@ def load_data_from_file():
                 st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
                 st.session_state.timer_remaining = store.get("timer_remaining", 15)
                 st.session_state.timer_running = store.get("timer_running", False)
-                if "bid_val_state" not in st.session_state:
-                    st.session_state.bid_val_state = store.get("bid_val_state", 10)
                 
                 players_list = store.get("players", [])
                 if players_list:
@@ -181,7 +178,6 @@ def reset_all_data():
     st.session_state.timer_set_seconds = 15
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
-    st.session_state.bid_val_state = 10
     
     save_data_to_file()
 
@@ -245,7 +241,6 @@ with tab_set:
     with col1:
         st.subheader(f"👤 팀장 이름 설정 ({st.session_state.num_teams}개 팀)")
         
-        # 폼 방식으로 감싸서 입력 중 데이터 유실 완벽 방지
         with st.form(key="team_names_form"):
             new_names = {}
             for i in range(st.session_state.num_teams):
@@ -455,7 +450,6 @@ with tab_auction:
                 st.session_state.current_player = selected_player
                 st.session_state.timer_running = False
                 st.session_state.timer_remaining = st.session_state.timer_set_seconds
-                st.session_state.bid_val_state = 10
                 if selected_player not in st.session_state.temp_bids:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
@@ -480,6 +474,10 @@ with tab_auction:
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
                     
+                    # 현재 입력된 입찰값 초기화 관리
+                    if "bid_val_state" not in st.session_state:
+                        st.session_state.bid_val_state = 10
+                        
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
                     if quick_col1.button("+10P", key="btn_add_10"):
                         st.session_state.bid_val_state = min(max_b_limit, st.session_state.bid_val_state + 10)
@@ -559,7 +557,11 @@ with tab_auction:
                                 st.session_state.forced_player = None
                                 st.session_state.timer_running = False
                                 st.session_state.timer_remaining = st.session_state.timer_set_seconds
-                                st.session_state.bid_val_state = 10
+                                
+                                # 낙찰 성공 시 입력창 값 초기화 (위젯 충돌 방지를 위해 안전하게 값만 할당)
+                                if "bid_val_state" in st.session_state:
+                                    st.session_state.bid_val_state = 10
+                                    
                                 save_data_to_file()
                                 st.rerun()
 
