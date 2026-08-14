@@ -86,7 +86,7 @@ def get_global_db():
         "timer_set_seconds": 15,
         "timer_running": False,
         "timer_end_time": 0,
-        "last_updated": time.time()
+        "version": 1
     }
 
 global_db = get_global_db()
@@ -104,12 +104,12 @@ def load_file_to_db():
 if "file_loaded" not in st.session_state:
     load_file_to_db()
     st.session_state.file_loaded = True
-    st.session_state.local_ver = global_db.get("last_updated", 0)
+    st.session_state.local_ver = global_db.get("version", 1)
 
 def save_db_to_file():
     try:
-        global_db["last_updated"] = time.time()
-        st.session_state.local_ver = global_db["last_updated"]
+        global_db["version"] = global_db.get("version", 1) + 1
+        st.session_state.local_ver = global_db["version"]
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(dict(global_db), f, ensure_ascii=False, indent=2)
     except Exception:
@@ -137,7 +137,7 @@ def do_reset_all_data():
         "timer_set_seconds": 15,
         "timer_running": False,
         "timer_end_time": 0,
-        "last_updated": time.time()
+        "version": 1
     })
     save_db_to_file()
 
@@ -153,7 +153,7 @@ def global_sync_watcher():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 disk_data = json.load(f)
-                disk_ver = disk_data.get("last_updated", 0)
+                disk_ver = disk_data.get("version", 1)
                 if disk_ver > st.session_state.get("local_ver", 0):
                     for k, v in disk_data.items():
                         global_db[k] = v
@@ -162,8 +162,8 @@ def global_sync_watcher():
         except Exception:
             pass
 
-    if global_db.get("last_updated", 0) > st.session_state.get("local_ver", 0):
-        st.session_state.local_ver = global_db["last_updated"]
+    if global_db.get("version", 1) > st.session_state.get("local_ver", 0):
+        st.session_state.local_ver = global_db["version"]
         need_rerun = True
 
     if need_rerun:
@@ -297,6 +297,28 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
+# 🔥 [실시간 타이머 1초 자동 동기화 렌더러]
+@st.fragment(run_every="1s")
+def render_timer_display():
+    set_sec = global_db.get("timer_set_seconds", 15)
+    is_running = global_db.get("timer_running", False)
+    end_ts = global_db.get("timer_end_time", 0)
+    now_ts = time.time()
+    
+    if is_running:
+        rem = max(0, int(end_ts - now_ts))
+        if rem == 0 and global_db.get("timer_running"):
+            global_db["timer_running"] = False
+            save_db_to_file()
+    else:
+        rem = set_sec
+
+    t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
+    t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
+
+    st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
+    st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
+
 # 탭 2: 경매 진행
 with tab_auction:
     col_left, col_right = st.columns([5, 6])
@@ -350,25 +372,8 @@ with tab_auction:
                     st.markdown(f"### **{selected_player}**")
                     st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-            # 3. 타이머 카운트다운
-            set_sec = global_db.get("timer_set_seconds", 15)
-            is_running = global_db.get("timer_running", False)
-            end_ts = global_db.get("timer_end_time", 0)
-            now_ts = time.time()
-            
-            if is_running:
-                rem = max(0, int(end_ts - now_ts))
-                if rem == 0 and global_db.get("timer_running"):
-                    global_db["timer_running"] = False
-                    save_db_to_file()
-            else:
-                rem = set_sec
-
-            t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
-            t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
-
-            st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
-            st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
+            # 🔥 3. 실시간 타이머 (카운트다운 지속 작동 연결)
+            render_timer_display()
 
             # 4. 타이머 제어 및 수기 입력 카드
             with st.container(border=True):
