@@ -76,6 +76,25 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
+def get_empty_store():
+    return {
+        "num_teams": 16,
+        "max_roster_size": 7,
+        "initial_budget": 1000,
+        "teams": {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)},
+        "custom_landmarks": {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()},
+        "history": [],
+        "landmark_assignments": {},
+        "players": [],
+        "current_player": None,
+        "temp_bids": {},
+        "forced_player": None,
+        "timer_set_seconds": 15,
+        "timer_remaining": 15,
+        "timer_running": False,
+        "last_updated": time.time()
+    }
+
 def save_data_to_file():
     players_data = []
     if hasattr(st.session_state, "players") and not st.session_state.players.empty:
@@ -165,13 +184,12 @@ def load_data_from_file():
     return False
 
 def do_reset_all_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            os.remove(DATA_FILE)
-        except Exception:
-            pass
-            
-    # 전체 세션 상태 완벽 초기화
+    # 저장소 파일을 빈 상태로 직접 덮어쓰기
+    empty_store = get_empty_store()
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(empty_store, f, ensure_ascii=False, indent=2)
+
+    # 전체 세션 완전 비우기
     for key in list(st.session_state.keys()):
         del st.session_state[key]
         
@@ -189,8 +207,6 @@ def do_reset_all_data():
     st.session_state.timer_set_seconds = 15
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
-    
-    save_data_to_file()
 
 load_data_from_file()
 
