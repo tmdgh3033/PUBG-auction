@@ -12,10 +12,8 @@ st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
 
-# =========================================================
-# 🔥 핵심: 모든 접속자가 3초마다 파일 변경을 감지하도록 최상단 자동 실행
-# =========================================================
-st_autorefresh(interval=3000, limit=None, key="global_realtime_sync")
+# 🔥 핵심 1: 모든 접속자 브라우저가 1.5초마다 백엔드 상태를 체크하도록 폴링 타이머 가동
+st_autorefresh(interval=1500, limit=None, key="global_realtime_sync_timer")
 
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
@@ -118,6 +116,9 @@ def save_data_to_file():
                 "사진": img_b64
             })
             
+    now_ts = time.time()
+    st.session_state.last_updated = now_ts
+
     store = {
         "num_teams": st.session_state.get("num_teams", 16),
         "max_roster_size": st.session_state.get("max_roster_size", 7),
@@ -133,58 +134,63 @@ def save_data_to_file():
         "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
         "timer_remaining": st.session_state.get("timer_remaining", 15),
         "timer_running": st.session_state.get("timer_running", False),
-        "last_updated": time.time()
+        "last_updated": now_ts
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
 
-def load_data_from_file():
+def sync_data_from_file_if_updated():
+    """🔥 핵심 2: 저장소 파일의 타임스탬프를 체크하여 다른 사용자가 업데이트한 최신 데이터 강제 반영"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 store = json.load(f)
-                st.session_state.num_teams = store.get("num_teams", 16)
-                st.session_state.max_roster_size = store.get("max_roster_size", 7)
-                st.session_state.initial_budget = store.get("initial_budget", 1000)
-                
-                default_teams = {f"팀 {i}": {"name": "", "budget": st.session_state.initial_budget, "roster": []} for i in range(1, 21)}
-                loaded_teams = store.get("teams", {})
-                for t_key, t_val in default_teams.items():
-                    if t_key not in loaded_teams:
-                        loaded_teams[t_key] = t_val
-                st.session_state.teams = loaded_teams
+                file_ts = store.get("last_updated", 0)
+                session_ts = st.session_state.get("last_updated", 0)
 
-                st.session_state.custom_landmarks = store.get("custom_landmarks", {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()})
-                st.session_state.history = store.get("history", [])
-                st.session_state.landmark_assignments = store.get("landmark_assignments", {})
-                
-                st.session_state.current_player = store.get("current_player", None)
-                st.session_state.temp_bids = store.get("temp_bids", {})
-                st.session_state.forced_player = store.get("forced_player", None)
-                st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
-                st.session_state.timer_remaining = store.get("timer_remaining", 15)
-                st.session_state.timer_running = store.get("timer_running", False)
-                
-                players_list = store.get("players", [])
-                if players_list:
-                    df_rows = []
-                    for p in players_list:
-                        img_bytes = None
-                        if p["사진"]:
-                            try:
-                                img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
-                            except Exception:
-                                img_bytes = None
-                        status = p.get("상태", "대기중")
-                        tier = p.get("티어", 1)
-                        df_rows.append({"선수명": p["선수명"], "티어": tier, "상태": status, "사진": img_bytes})
-                    st.session_state.players = pd.DataFrame(df_rows)
-                else:
-                    st.session_state.players = pd.DataFrame(columns=["선수명", "티어", "상태", "사진"])
-                return True
+                # 파일 수정 시간이 내 세션 시간보다 새것인 경우 무조건 덮어쓰기 동기화
+                if file_ts > session_ts or "teams" not in st.session_state:
+                    st.session_state.last_updated = file_ts
+                    st.session_state.num_teams = store.get("num_teams", 16)
+                    st.session_state.max_roster_size = store.get("max_roster_size", 7)
+                    st.session_state.initial_budget = store.get("initial_budget", 1000)
+                    
+                    default_teams = {f"팀 {i}": {"name": "", "budget": st.session_state.initial_budget, "roster": []} for i in range(1, 21)}
+                    loaded_teams = store.get("teams", {})
+                    for t_key, t_val in default_teams.items():
+                        if t_key not in loaded_teams:
+                            loaded_teams[t_key] = t_val
+                    st.session_state.teams = loaded_teams
+
+                    st.session_state.custom_landmarks = store.get("custom_landmarks", {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()})
+                    st.session_state.history = store.get("history", [])
+                    st.session_state.landmark_assignments = store.get("landmark_assignments", {})
+                    
+                    st.session_state.current_player = store.get("current_player", None)
+                    st.session_state.temp_bids = store.get("temp_bids", {})
+                    st.session_state.forced_player = store.get("forced_player", None)
+                    st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
+                    st.session_state.timer_remaining = store.get("timer_remaining", 15)
+                    st.session_state.timer_running = store.get("timer_running", False)
+                    
+                    players_list = store.get("players", [])
+                    if players_list:
+                        df_rows = []
+                        for p in players_list:
+                            img_bytes = None
+                            if p["사진"]:
+                                try:
+                                    img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
+                                except Exception:
+                                    img_bytes = None
+                            status = p.get("상태", "대기중")
+                            tier = p.get("티어", 1)
+                            df_rows.append({"선수명": p["선수명"], "티어": tier, "상태": status, "사진": img_bytes})
+                        st.session_state.players = pd.DataFrame(df_rows)
+                    else:
+                        st.session_state.players = pd.DataFrame(columns=["선수명", "티어", "상태", "사진"])
         except Exception:
             pass
-    return False
 
 def do_reset_all_data():
     empty_store = get_empty_store()
@@ -212,8 +218,8 @@ def do_reset_all_data():
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
 
-# 항상 최신 저장 데이터 파일 불러오기
-load_data_from_file()
+# 실행 시 최신 변경 데이터 자동 수신
+sync_data_from_file_if_updated()
 
 if "initialized" not in st.session_state:
     if "show_bidding" not in st.session_state:
