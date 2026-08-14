@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
@@ -18,25 +19,6 @@ st.markdown("""
         padding-bottom: 1.5rem !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
-    }
-    .timer-container {
-        background: linear-gradient(135deg, #1f2937, #111827);
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 12px;
-        text-align: center;
-        margin-bottom: 12px;
-    }
-    .timer-display {
-        font-size: 38px;
-        font-weight: 800;
-        color: #10b981;
-        letter-spacing: 1px;
-    }
-    .timer-display-warn {
-        font-size: 38px;
-        font-weight: 800;
-        color: #f87171;
     }
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         border-radius: 10px !important;
@@ -95,12 +77,10 @@ def init_defaults():
         st.session_state.forced_player = None
     if "timer_set_seconds" not in st.session_state:
         st.session_state.timer_set_seconds = 15
-    if "timer_remaining" not in st.session_state:
-        st.session_state.timer_remaining = 15
-    if "timer_end_time" not in st.session_state:
-        st.session_state.timer_end_time = 0
     if "timer_running" not in st.session_state:
         st.session_state.timer_running = False
+    if "timer_start_timestamp" not in st.session_state:
+        st.session_state.timer_start_timestamp = 0
     if "show_budget" not in st.session_state:
         st.session_state.show_budget = True
     if "show_roster" not in st.session_state:
@@ -141,9 +121,8 @@ def save_data_to_file():
         "temp_bids": st.session_state.get("temp_bids", {}),
         "forced_player": st.session_state.get("forced_player", None),
         "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
-        "timer_remaining": st.session_state.get("timer_remaining", 15),
-        "timer_end_time": st.session_state.get("timer_end_time", 0),
-        "timer_running": st.session_state.get("timer_running", False)
+        "timer_running": st.session_state.get("timer_running", False),
+        "timer_start_timestamp": st.session_state.get("timer_start_timestamp", 0)
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
@@ -164,9 +143,8 @@ def load_data_from_file():
                 st.session_state.temp_bids = store.get("temp_bids", {})
                 st.session_state.forced_player = store.get("forced_player", None)
                 st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
-                st.session_state.timer_remaining = store.get("timer_remaining", 15)
-                st.session_state.timer_end_time = store.get("timer_end_time", 0)
                 st.session_state.timer_running = store.get("timer_running", False)
+                st.session_state.timer_start_timestamp = store.get("timer_start_timestamp", 0)
                 
                 players_list = store.get("players", [])
                 if players_list:
@@ -193,6 +171,74 @@ def do_reset_all_data():
 def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
+
+# HTML/JS 실시간 타이머 컴포넌트
+def render_js_timer(duration_sec, is_running, start_time_ms):
+    timer_html = f"""
+    <div style="
+        background: linear-gradient(135deg, #1f2937, #111827);
+        border: 1px solid #374151;
+        border-radius: 12px;
+        padding: 12px;
+        text-align: center;
+        font-family: sans-serif;
+    ">
+        <div id="js-timer-display" style="
+            font-size: 38px;
+            font-weight: 800;
+            color: #10b981;
+            letter-spacing: 1px;
+        ">{duration_sec}초</div>
+        <div style="background-color: #374151; border-radius: 8px; height: 10px; width: 100%; margin-top: 8px; overflow: hidden;">
+            <div id="js-timer-bar" style="background-color: #10b981; height: 100%; width: 100%; transition: width 0.2s linear;"></div>
+        </div>
+    </div>
+
+    <script>
+        (function() {{
+            const totalDuration = {duration_sec};
+            const isRunning = {str(is_running).lower()};
+            const startTime = {start_time_ms};
+            
+            const display = document.getElementById('js-timer-display');
+            const bar = document.getElementById('js-timer-bar');
+            
+            if (!isRunning || startTime === 0) {{
+                display.innerText = totalDuration + "초";
+                display.style.color = totalDuration <= 5 ? "#f87171" : "#10b981";
+                bar.style.width = "100%";
+                return;
+            }}
+
+            function updateTimer() {{
+                const now = Date.now();
+                const elapsedSec = (now - startTime) / 1000;
+                const remaining = Math.max(0, Math.ceil(totalDuration - elapsedSec));
+                const pct = Math.max(0, Math.min(100, (remaining / totalDuration) * 100));
+
+                if (remaining <= 0) {{
+                    display.innerText = "⏰ 시간 종료!";
+                    display.style.color = "#f87171";
+                    bar.style.width = "0%";
+                    bar.style.backgroundColor = "#f87171";
+                }} else {{
+                    display.innerText = remaining + "초";
+                    if (remaining <= 5) {{
+                        display.style.color = "#f87171";
+                        bar.style.backgroundColor = "#f87171";
+                    }} else {{
+                        display.style.color = "#10b981";
+                        bar.style.backgroundColor = "#10b981";
+                    }}
+                    bar.style.width = pct + "%";
+                    requestAnimationFrame(updateTimer);
+                }}
+            }}
+            updateTimer();
+        }})();
+    </script>
+    """
+    components.html(timer_html, height=105)
 
 # 초기화
 init_defaults()
@@ -314,80 +360,61 @@ with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 안정화된 타이머 및 초 수기 입력 기능 완벽 복원
+        # 1. HTML5/JS 기반 고성능 클라이언트 타이머 (멈춤 현상 차단)
         with st.container(border=True):
             set_sec = st.session_state.timer_set_seconds
-            now_time = time.time()
-            
-            if st.session_state.timer_running:
-                end_time = st.session_state.timer_end_time
-                rem = max(0, int(end_time - now_time))
-                if rem == 0:
-                    st.session_state.timer_running = False
-                    st.session_state.timer_remaining = 0
-            else:
-                rem = st.session_state.timer_remaining
-            
-            t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
-            t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
-            
-            st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
-            st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
+            is_running = st.session_state.timer_running
+            start_ts = st.session_state.timer_start_timestamp
+
+            # 브라우저 타이머 렌더링
+            render_js_timer(set_sec, is_running, start_ts)
             
             t_btn_col1, t_btn_col2, t_btn_col3 = st.columns([2, 1, 1])
-            if not st.session_state.timer_running:
-                b_lbl = "▶️ 재개" if rem < set_sec and rem > 0 else "▶️ 카운트다운 시작"
-                if t_btn_col1.button(b_lbl, type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
-                    start_rem = rem if rem > 0 else set_sec
-                    st.session_state.timer_end_time = time.time() + start_rem
+            if not is_running:
+                if t_btn_col1.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
+                    st.session_state.timer_start_timestamp = int(time.time() * 1000)
                     st.session_state.timer_running = True
                     save_data_to_file()
                     st.rerun()
             else:
-                if t_btn_col1.button("⏸️ 일시정지", type="secondary", use_container_width=True, key=f"timer_pause_btn_{rc}"):
-                    st.session_state.timer_remaining = rem
+                if t_btn_col1.button("⏸️ 일시정지 / 멈춤", type="secondary", use_container_width=True, key=f"timer_pause_btn_{rc}"):
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
                     
             if t_btn_col2.button("🔄 리셋", use_container_width=True, key=f"timer_reset_btn_{rc}"):
                 st.session_state.timer_running = False
-                st.session_state.timer_remaining = set_sec
+                st.session_state.timer_start_timestamp = 0
                 save_data_to_file()
                 st.rerun()
                 
-            if t_btn_col3.button("+5초", use_container_width=True, key=f"timer_add5_btn_{rc}"):
-                if st.session_state.timer_running:
-                    st.session_state.timer_end_time += 5
-                else:
-                    st.session_state.timer_remaining += 5
+            if t_btn_col3.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
+                st.session_state.timer_set_seconds += 5
+                if is_running:
+                    st.session_state.timer_start_timestamp += 5000
                 save_data_to_file()
                 st.rerun()
 
-            # 타이머 직접 수기 입력 및 설정 복원
+            # 타이머 직접 수기 입력 및 설정
             with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
                 p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                 if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
                     st.session_state.timer_set_seconds = 10
-                    st.session_state.timer_remaining = 10
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
                 if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
                     st.session_state.timer_set_seconds = 15
-                    st.session_state.timer_remaining = 15
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
                 if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
                     st.session_state.timer_set_seconds = 30
-                    st.session_state.timer_remaining = 30
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
                 if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
                     st.session_state.timer_set_seconds = 60
-                    st.session_state.timer_remaining = 60
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
@@ -395,7 +422,6 @@ with tab_auction:
                 custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1, key=f"custom_timer_sec_{rc}")
                 if custom_sec != st.session_state.timer_set_seconds:
                     st.session_state.timer_set_seconds = custom_sec
-                    st.session_state.timer_remaining = custom_sec
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
@@ -447,7 +473,6 @@ with tab_auction:
                         st.session_state.current_player = None
                         st.session_state.forced_player = None
                         st.session_state.timer_running = False
-                        st.session_state.timer_remaining = st.session_state.timer_set_seconds
                         save_data_to_file()
                         st.success(f"'{selected_player}' 선수 유찰 완료")
                         st.rerun()
@@ -455,12 +480,11 @@ with tab_auction:
             if st.session_state.current_player != selected_player:
                 st.session_state.current_player = selected_player
                 st.session_state.timer_running = False
-                st.session_state.timer_remaining = st.session_state.timer_set_seconds
                 if selected_player not in st.session_state.temp_bids:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 등록 카드 (멈춤 현상 차단 및 +10P ~ +500P 버튼 완벽 가동)
+            # 3. 입찰 등록 카드
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -485,7 +509,6 @@ with tab_auction:
                     if bid_num_key not in st.session_state:
                         st.session_state[bid_num_key] = 10
 
-                    # 수치가 남은 예산을 초과하지 않도록 보정
                     st.session_state[bid_num_key] = min(max_b_limit, max(0, st.session_state[bid_num_key]))
                     
                     # 입찰 버튼 4종 (+10P ~ +500P)
@@ -505,7 +528,8 @@ with tab_auction:
                     
                     if st.button("🚀 입찰 제출", type="primary", use_container_width=True, key=f"submit_bid_btn_{rc}"):
                         st.session_state.temp_bids[selected_player][bidding_team] = entered_bid
-                        st.session_state.timer_end_time = time.time() + st.session_state.timer_set_seconds
+                        # 입찰 제출 시 설정된 초로 리셋 및 카운트다운 자동 시작
+                        st.session_state.timer_start_timestamp = int(time.time() * 1000)
                         st.session_state.timer_running = True
                         save_data_to_file()
                         st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰 제출 완료!")
@@ -555,7 +579,6 @@ with tab_auction:
                                 st.session_state.current_player = None
                                 st.session_state.forced_player = None
                                 st.session_state.timer_running = False
-                                st.session_state.timer_remaining = st.session_state.timer_set_seconds
                                 
                                 save_data_to_file()
                                 st.rerun()
