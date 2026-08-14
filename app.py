@@ -101,8 +101,6 @@ def init_defaults():
         st.session_state.timer_end_time = 0
     if "timer_running" not in st.session_state:
         st.session_state.timer_running = False
-    if "bid_val" not in st.session_state:
-        st.session_state.bid_val = 10
     if "show_budget" not in st.session_state:
         st.session_state.show_budget = True
     if "show_roster" not in st.session_state:
@@ -192,8 +190,9 @@ def do_reset_all_data():
         del st.session_state[key]
     init_defaults()
 
-def add_bid_amount(amount, max_limit):
-    st.session_state.bid_val = min(max_limit, st.session_state.bid_val + amount)
+def add_bid_amount(target_key, amount, max_limit):
+    cur_val = st.session_state.get(target_key, 10)
+    st.session_state[target_key] = min(max_limit, cur_val + amount)
 
 # 초기화
 init_defaults()
@@ -315,7 +314,7 @@ with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 안정화된 타이머
+        # 1. 안정화된 타이머 및 초 수기 입력 기능 완벽 복원
         with st.container(border=True):
             set_sec = st.session_state.timer_set_seconds
             now_time = time.time()
@@ -365,7 +364,8 @@ with tab_auction:
                 save_data_to_file()
                 st.rerun()
 
-            with st.expander("⚙️ 타이머 시간 변경 설정"):
+            # 타이머 직접 수기 입력 및 설정 복원
+            with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
                 p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                 if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
                     st.session_state.timer_set_seconds = 10
@@ -388,6 +388,14 @@ with tab_auction:
                 if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
                     st.session_state.timer_set_seconds = 60
                     st.session_state.timer_remaining = 60
+                    st.session_state.timer_running = False
+                    save_data_to_file()
+                    st.rerun()
+
+                custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1, key=f"custom_timer_sec_{rc}")
+                if custom_sec != st.session_state.timer_set_seconds:
+                    st.session_state.timer_set_seconds = custom_sec
+                    st.session_state.timer_remaining = custom_sec
                     st.session_state.timer_running = False
                     save_data_to_file()
                     st.rerun()
@@ -452,7 +460,7 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 등록 카드 (즉각 반응)
+            # 3. 입찰 등록 카드 (멈춤 현상 차단 및 +10P ~ +500P 버튼 완벽 가동)
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -472,30 +480,35 @@ with tab_auction:
                     )
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
+                    bid_num_key = f"bid_input_num_{rc}"
+                    
+                    if bid_num_key not in st.session_state:
+                        st.session_state[bid_num_key] = 10
+
+                    # 수치가 남은 예산을 초과하지 않도록 보정
+                    st.session_state[bid_num_key] = min(max_b_limit, max(0, st.session_state[bid_num_key]))
                     
                     # 입찰 버튼 4종 (+10P ~ +500P)
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
-                    quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(10, max_b_limit))
-                    quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(50, max_b_limit))
-                    quick_col3.button("+100P", key=f"btn_add_100_{rc}", on_click=add_bid_amount, args=(100, max_b_limit))
-                    quick_col4.button("+500P", key=f"btn_add_500_{rc}", on_click=add_bid_amount, args=(500, max_b_limit))
+                    quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(bid_num_key, 10, max_b_limit))
+                    quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(bid_num_key, 50, max_b_limit))
+                    quick_col3.button("+100P", key=f"btn_add_100_{rc}", on_click=add_bid_amount, args=(bid_num_key, 100, max_b_limit))
+                    quick_col4.button("+500P", key=f"btn_add_500_{rc}", on_click=add_bid_amount, args=(bid_num_key, 500, max_b_limit))
                         
                     entered_bid = st.number_input(
                         "입찰 금액(P)", 
                         min_value=0, 
                         max_value=max_b_limit, 
-                        value=min(max_b_limit, st.session_state.bid_val),
                         step=5,
-                        key=f"bid_input_num_{rc}"
+                        key=bid_num_key
                     )
-                    st.session_state.bid_val = entered_bid
                     
                     if st.button("🚀 입찰 제출", type="primary", use_container_width=True, key=f"submit_bid_btn_{rc}"):
                         st.session_state.temp_bids[selected_player][bidding_team] = entered_bid
                         st.session_state.timer_end_time = time.time() + st.session_state.timer_set_seconds
                         st.session_state.timer_running = True
                         save_data_to_file()
-                        st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰!")
+                        st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰 제출 완료!")
                         st.rerun()
 
                 # 입찰 현황 및 낙찰
