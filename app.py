@@ -273,12 +273,6 @@ def render_live_player_card():
     players_list = global_db.get("players", [])
     cur_player = global_db.get("current_player")
     
-    select_key = f"selected_auction_player_{rc}"
-    if cur_player and st.session_state.get("last_synced_player") != cur_player:
-        st.session_state[select_key] = cur_player
-        st.session_state["last_synced_player"] = cur_player
-        st.rerun()
-    
     p_match = next((p for p in players_list if p["선수명"] == cur_player), None)
     
     if p_match:
@@ -547,6 +541,7 @@ def render_live_random_pick():
             
             select_key = f"selected_auction_player_{rc}"
             st.session_state[select_key] = chosen_name
+            st.session_state["last_synced_player"] = chosen_name
             
             for p in global_db["players"]:
                 if p["선수명"] == chosen_name:
@@ -574,7 +569,7 @@ def render_live_random_pick():
         st.markdown(f"## **{f_name}** ({f_tier}티어) 🎉")
         st.write("상단 **[경매 진행]** 탭으로 이동하시면 해당 선수가 자동으로 선택되어 있습니다!")
 
-# 🔥 [핵심 수정] 맵 선택 상자 및 추첨/결과표 전체를 프래그먼트로 감싸서 관전자 화면 100% 자동 동기화
+# ⚡ 랜드마크 탭 실시간 연동 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_landmark_tab():
     load_file_to_db()
@@ -583,7 +578,6 @@ def render_live_landmark_tab():
     select_map_key = f"selected_map_box_{rc}"
     srv_map = global_db.get("current_landmark_map", "에란겔 (Erangel)")
 
-    # 서버에서 바뀐 맵 정보를 관전자 드롭다운 세션에 자동 주입
     if srv_map and srv_map in map_keys:
         if st.session_state.get("last_synced_landmark_map") != srv_map:
             st.session_state[select_map_key] = srv_map
@@ -595,7 +589,6 @@ def render_live_landmark_tab():
 
     selected_map = st.selectbox("추첨 및 편집할 맵을 선택하세요", map_keys, key=select_map_key)
     
-    # 내 화면에서 맵을 변경하면 서버 DB에도 즉시 동기화
     if global_db.get("current_landmark_map") != selected_map:
         global_db["current_landmark_map"] = selected_map
         st.session_state["last_synced_landmark_map"] = selected_map
@@ -668,19 +661,20 @@ with tab_auction:
             st.info("현재 경매 대상 선수가 없습니다. '🎲 랜덤 선수 추첨' 탭에서 뽑아주세요.")
         else:
             select_key = f"selected_auction_player_{rc}"
-
             srv_player = global_db.get("current_player")
+
+            # 🔥 [수정] 서버에서 추첨된 선수가 드롭다운 선택에 확실히 고정되도록 인덱스 계산 방식 강화
+            default_index = 0
             if srv_player and srv_player in waiting_list:
-                if st.session_state.get("last_synced_player") != srv_player:
-                    st.session_state[select_key] = srv_player
-                    st.session_state["last_synced_player"] = srv_player
+                default_index = waiting_list.index(srv_player)
+                st.session_state[select_key] = srv_player
             elif select_key not in st.session_state or st.session_state[select_key] not in waiting_list:
                 st.session_state[select_key] = waiting_list[0]
-                st.session_state["last_synced_player"] = waiting_list[0]
 
             selected_player = st.selectbox(
                 "🎯 경매 진행 대상 선택", 
                 waiting_list, 
+                index=default_index,
                 key=select_key,
                 format_func=lambda x: f"{x} ({next((p['티어'] for p in waiting_players if p['선수명']==x), 1)}티어)"
             )
