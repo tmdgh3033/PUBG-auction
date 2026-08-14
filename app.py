@@ -97,13 +97,13 @@ def save_data_to_file():
             })
             
     store = {
-        "num_teams": st.session_state.num_teams,
-        "max_roster_size": st.session_state.max_roster_size,
-        "initial_budget": st.session_state.initial_budget,
-        "teams": st.session_state.teams,
-        "custom_landmarks": st.session_state.custom_landmarks,
-        "history": st.session_state.history,
-        "landmark_assignments": st.session_state.landmark_assignments,
+        "num_teams": st.session_state.get("num_teams", 16),
+        "max_roster_size": st.session_state.get("max_roster_size", 7),
+        "initial_budget": st.session_state.get("initial_budget", 1000),
+        "teams": st.session_state.get("teams", {}),
+        "custom_landmarks": st.session_state.get("custom_landmarks", DEFAULT_MAP_LANDMARKS),
+        "history": st.session_state.get("history", []),
+        "landmark_assignments": st.session_state.get("landmark_assignments", {}),
         "players": players_data,
         "current_player": st.session_state.get("current_player", None),
         "temp_bids": st.session_state.get("temp_bids", {}),
@@ -124,7 +124,14 @@ def load_data_from_file():
                 st.session_state.num_teams = store.get("num_teams", 16)
                 st.session_state.max_roster_size = store.get("max_roster_size", 7)
                 st.session_state.initial_budget = store.get("initial_budget", 1000)
-                st.session_state.teams = store.get("teams", {f"팀 {i}": {"name": "", "budget": st.session_state.initial_budget, "roster": []} for i in range(1, 21)})
+                
+                default_teams = {f"팀 {i}": {"name": "", "budget": st.session_state.initial_budget, "roster": []} for i in range(1, 21)}
+                loaded_teams = store.get("teams", {})
+                for t_key, t_val in default_teams.items():
+                    if t_key not in loaded_teams:
+                        loaded_teams[t_key] = t_val
+                st.session_state.teams = loaded_teams
+
                 st.session_state.custom_landmarks = store.get("custom_landmarks", {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()})
                 st.session_state.history = store.get("history", [])
                 st.session_state.landmark_assignments = store.get("landmark_assignments", {})
@@ -179,7 +186,13 @@ def reset_all_data():
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
     
+    # 폼 인풋 관련 키 삭제
+    for key in list(st.session_state.keys()):
+        if key.startswith("form_team_input_") or key.startswith("team_name_input_"):
+            del st.session_state[key]
+            
     save_data_to_file()
+    st.rerun()
 
 load_data_from_file()
 
@@ -474,7 +487,6 @@ with tab_auction:
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
                     
-                    # 현재 입력된 입찰값 초기화 관리
                     if "bid_val_state" not in st.session_state:
                         st.session_state.bid_val_state = 10
                         
@@ -558,10 +570,6 @@ with tab_auction:
                                 st.session_state.timer_running = False
                                 st.session_state.timer_remaining = st.session_state.timer_set_seconds
                                 
-                                # 낙찰 성공 시 입력창 값 초기화 (위젯 충돌 방지를 위해 안전하게 값만 할당)
-                                if "bid_val_state" in st.session_state:
-                                    st.session_state.bid_val_state = 10
-                                    
                                 save_data_to_file()
                                 st.rerun()
 
@@ -602,11 +610,12 @@ with tab_auction:
                         t_key = f"팀 {i+j+1}"
                         t = st.session_state.teams[t_key]
                         with cols[j].container(border=True):
-                            st.markdown(f"**{t_key} ({t['name']})**")
+                            t_display_title = f"{t_key} ({t['name']})" if t['name'] else t_key
+                            st.markdown(f"**{t_display_title}**")
                             st.caption(f"잔액: {t['budget']}P | {len(t['roster'])}/{st.session_state.max_roster_size}명")
                             if t['roster']:
                                 sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
-                                with st.expander("로스터 보기"):
+                                with st.expander("로스터 보기", expanded=True):
                                     for member in sorted_roster:
                                         c1, c2 = st.columns([3, 1])
                                         m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
