@@ -59,7 +59,7 @@ st.markdown("""
         padding: 0 !important;
         color: #f3f4f6;
     }
-    /* 🔥 [수정] 취소 버튼 크기를 글씨 높이에 딱 맞게 슬림화 */
+    /* 🔥 취소 버튼 크기를 글씨 높이에 딱 맞게 슬림화 */
     div[data-testid="stExpander"] div[data-testid="stButton"] {
         margin: 0 !important;
         padding: 0 !important;
@@ -430,7 +430,13 @@ def render_live_auction_left():
 
                 if st.button(f"👑 '{top_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
                     team_budget = global_db["teams"][top_team]["budget"]
-                    if top_bid > team_budget:
+                    # 🔥 [수정] 낙찰 확정 시 동일 티어 보유 여부 재확인
+                    team_roster = global_db["teams"][top_team]["roster"]
+                    has_same_tier = any(m.get("tier") == p_tier_val for m in team_roster)
+                    
+                    if has_same_tier:
+                        st.error(f"낙찰 실패: {top_team}은(는) 이미 {p_tier_val}티어 선수를 영입했습니다.")
+                    elif top_bid > team_budget:
                         st.error(f"낙찰 실패: {top_team}의 잔액({team_budget}P) 부족")
                     else:
                         global_db["teams"][top_team]["budget"] -= top_bid
@@ -458,10 +464,12 @@ def render_live_auction_left():
                         st.success(f"🎉 '{selected_player}' 선수가 {top_team}팀에 낙찰 완료되었습니다!")
 
     # 4. 입찰 등록 양식
+    # 🔥 [핵심 수정] 팀 최대 인원 미만 AND 이미 해당 티어(p_tier_val) 선수가 없는 팀만 입찰 가능
     team_options = {
         k: global_db["teams"][k] 
         for k in active_team_keys 
         if len(global_db["teams"][k]["roster"]) < global_db["max_roster_size"]
+        and not any(m.get("tier") == p_tier_val for m in global_db["teams"][k]["roster"])
     }
     
     if team_options:
@@ -498,6 +506,8 @@ def render_live_auction_left():
                 global_db["timer_end_timestamp"] = time.time() + 7
                 save_db_to_file()
                 st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
+    else:
+        st.warning(f"⚠️ 현재 {p_tier_val}티어 선수를 입찰할 수 있는 팀이 없습니다.\n(모든 팀이 이미 {p_tier_val}티어 선수를 보유 중이거나 팀 인원이 가득 찼습니다.)")
 
 # ⚡ 우측 예산/로스터/기록 영역 프래그먼트
 @st.fragment(run_every="1s")
