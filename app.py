@@ -164,7 +164,7 @@ def load_data_from_file():
             pass
     return False
 
-def reset_all_data():
+def do_reset_all_data():
     if os.path.exists(DATA_FILE):
         try:
             os.remove(DATA_FILE)
@@ -186,13 +186,12 @@ def reset_all_data():
     st.session_state.timer_remaining = 15
     st.session_state.timer_running = False
     
-    # 폼 인풋 관련 키 삭제
+    # 폼 관련 및 세션 키 초기화
     for key in list(st.session_state.keys()):
         if key.startswith("form_team_input_") or key.startswith("team_name_input_"):
             del st.session_state[key]
             
     save_data_to_file()
-    st.rerun()
 
 load_data_from_file()
 
@@ -318,7 +317,10 @@ with tab_set:
     st.markdown("---")
     st.subheader("🚨 전체 시스템 데이터 초기화")
     st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
-    st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data", on_click=reset_all_data)
+    if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key="reset_all_system_data"):
+        do_reset_all_data()
+        st.success("모든 시스템 데이터가 초기화되었습니다.")
+        st.rerun()
 
 # 탭 2: 경매 진행
 with tab_auction:
