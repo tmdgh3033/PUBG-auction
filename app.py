@@ -268,12 +268,17 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [수정] 공유 받는 화면에서도 선수 닉네임과 사진이 1초 내로 변경되도록 자동 동기화 적용
+# 🔥 [핵심 수정] 서버 대상 선수 변경 시 관전자 화면 자동 전체 갱신 트리거
 @st.fragment(run_every="1s")
 def render_live_player_card():
     load_file_to_db()
     players_list = global_db.get("players", [])
     cur_player = global_db.get("current_player")
+    
+    # 서버 선수가 관전자 화면의 세션 정보와 다르면 자동으로 1회 rerun 실행하여 드롭다운 및 전체 화면 동기화
+    if cur_player and st.session_state.get("last_synced_player") != cur_player:
+        st.session_state["last_synced_player"] = cur_player
+        st.rerun()
     
     p_match = next((p for p in players_list if p["선수명"] == cur_player), None)
     
@@ -497,10 +502,10 @@ with tab_auction:
             p_match = next((p for p in players_list if p["선수명"] == selected_player), None)
             p_tier_val = p_match.get("티어", 1) if p_match else 1
 
-            # 🔥 [수정] 공유 받는 화면에서도 즉시 사진과 닉네임이 바뀌도록 실시간 프래그먼트 호출
+            # 실시간 선수 프로필 카드 및 자동 동기화 트리거
             render_live_player_card()
 
-            # ⚡ 타이머만 1초 자동 연동 프래그먼트 호출
+            # ⚡ 타이머 1초 자동 연동 프래그먼트 호출
             render_live_timer_display()
 
             # 타이머 제어 버튼
@@ -596,7 +601,7 @@ with tab_auction:
                         st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
 
-            # ⚡ 실시간 입찰 현황판만 1초 자동 연동 프래그먼트 호출
+            # ⚡ 실시간 입찰 현황판 1초 자동 연동 프래그먼트 호출
             render_live_bids_display()
 
             current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
