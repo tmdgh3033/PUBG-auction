@@ -12,7 +12,7 @@ st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
 
-# 모든 브라우저가 1초마다 최신 입력 상태까지 실시간 동기화
+# 실시간 동기화 타이머 (1초 주기)
 st_autorefresh(interval=1000, limit=None, key="global_realtime_sync_timer")
 
 st.markdown("""
@@ -73,7 +73,6 @@ DEFAULT_MAP_LANDMARKS = {
 }
 
 def init_defaults():
-    """🔥 핵심: session_state 누락 방지를 위한 안전한 기본값 설정"""
     if "reset_count" not in st.session_state:
         st.session_state.reset_count = 0
     if "num_teams" not in st.session_state:
@@ -261,6 +260,7 @@ def do_reset_all_data():
     st.session_state.reset_count = new_rc
     init_defaults()
 
+# 입찰 금액 단축 버튼 콜백 함수
 def add_bid_amount(amount, max_limit):
     rc_val = st.session_state.get("reset_count", 0)
     bid_key = f"bid_val_input_{rc_val}"
@@ -281,10 +281,10 @@ def update_live_bid():
     st.session_state["live_bid_amount"] = st.session_state.get(f"bid_val_input_{rc_val}", 10)
     save_data_to_file()
 
-# 1. 안전하게 기본값 초기화
+# 1. 안전하게 기본 세션 상태 초기화
 init_defaults()
 
-# 2. 파일이 있다면 최신 데이터 수신 동기화
+# 2. 파일에서 최신 데이터 동기화
 sync_data_from_file_if_updated()
 
 rc = st.session_state.reset_count
