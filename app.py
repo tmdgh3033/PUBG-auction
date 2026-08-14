@@ -181,6 +181,11 @@ def sync_data_from_file_if_updated():
                     st.session_state.live_bidding_team = store.get("live_bidding_team", "팀 1")
                     st.session_state.live_bid_amount = store.get("live_bid_amount", 10)
                     
+                    # 위젯 Key 상태 동기화
+                    rc_val = st.session_state.get("reset_count", 0)
+                    st.session_state[f"bid_val_input_{rc_val}"] = st.session_state.live_bid_amount
+                    st.session_state[f"bidding_team_select_{rc_val}"] = st.session_state.live_bidding_team
+                    
                     players_list = store.get("players", [])
                     if players_list:
                         df_rows = []
@@ -229,18 +234,25 @@ def do_reset_all_data():
     st.session_state.live_bidding_team = "팀 1"
     st.session_state.live_bid_amount = 10
 
-# 입찰가 증가 및 실시간 동기화 콜백
+# 입찰가 증가 및 위젯 State 직접 변경 콜백
 def add_bid_amount(amount, max_limit):
-    cur_val = st.session_state.get("live_bid_amount", 10)
-    st.session_state["live_bid_amount"] = min(max_limit, cur_val + amount)
+    rc_val = st.session_state.get("reset_count", 0)
+    bid_key = f"bid_val_input_{rc_val}"
+    cur_val = st.session_state.get(bid_key, st.session_state.get("live_bid_amount", 10))
+    new_val = min(max_limit, cur_val + amount)
+    
+    st.session_state[bid_key] = new_val
+    st.session_state["live_bid_amount"] = new_val
     save_data_to_file()
 
 def update_live_team():
-    st.session_state["live_bidding_team"] = st.session_state.get(f"bidding_team_select_{rc}", "팀 1")
+    rc_val = st.session_state.get("reset_count", 0)
+    st.session_state["live_bidding_team"] = st.session_state.get(f"bidding_team_select_{rc_val}", "팀 1")
     save_data_to_file()
 
 def update_live_bid():
-    st.session_state["live_bid_amount"] = st.session_state.get(f"bid_val_input_{rc}", 10)
+    rc_val = st.session_state.get("reset_count", 0)
+    st.session_state["live_bid_amount"] = st.session_state.get(f"bid_val_input_{rc_val}", 10)
     save_data_to_file()
 
 # 항상 최신 저장 데이터 파일 불러오기
@@ -517,7 +529,7 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 카드 (실시간 미제출 수치 및 선택사항 동기화 적용)
+            # 3. 입찰 카드 (실시간 미제출 수치 및 선택사항 완전 연동)
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -530,22 +542,26 @@ with tab_auction:
                     
                     team_list = list(team_options.keys())
                     cur_live_team = st.session_state.get("live_bidding_team", team_list[0])
-                    team_idx = team_list.index(cur_live_team) if cur_live_team in team_list else 0
+                    team_key = f"bidding_team_select_{rc}"
+                    
+                    if team_key not in st.session_state or st.session_state[team_key] not in team_list:
+                        st.session_state[team_key] = cur_live_team if cur_live_team in team_list else team_list[0]
                     
                     bidding_team = st.selectbox(
                         "입찰할 팀 선택", 
                         team_list, 
-                        index=team_idx,
                         format_func=lambda x: f"{x} ({st.session_state.teams[x]['name']}) - 잔액: {st.session_state.teams[x]['budget']}P", 
-                        key=f"bidding_team_select_{rc}",
+                        key=team_key,
                         on_change=update_live_team
                     )
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
-                    cur_live_bid = st.session_state.get("live_bid_amount", 10)
-                    cur_live_bid = min(max_b_limit, cur_live_bid)
-                    
                     bid_key = f"bid_val_input_{rc}"
+                    
+                    if bid_key not in st.session_state:
+                        st.session_state[bid_key] = st.session_state.get("live_bid_amount", 10)
+                    
+                    st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key])
                     
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
                     quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(10, max_b_limit))
@@ -557,7 +573,6 @@ with tab_auction:
                         "입찰 금액(P)", 
                         min_value=0, 
                         max_value=max_b_limit, 
-                        value=cur_live_bid,
                         step=5,
                         key=bid_key,
                         on_change=update_live_bid
