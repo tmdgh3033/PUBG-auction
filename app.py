@@ -59,15 +59,16 @@ st.markdown("""
         padding: 3px 0 !important;
         color: #f3f4f6;
     }
-    /* 🔥 [수정] 로스터 취소 버튼 전용 컴팩트 CSS (줄바꿈 금지 및 크기 축소) */
+    /* 🔥 [수정] 취소 버튼 가로쓰기 고정 및 크기 최적화 */
     div[data-testid="stExpander"] div[data-testid="column"] button {
-        padding: 1px 2px !important;
+        padding: 2px 6px !important;
         font-size: 11px !important;
-        min-height: 20px !important;
-        height: 20px !important;
+        min-height: 22px !important;
+        height: 22px !important;
         line-height: 1 !important;
         white-space: nowrap !important;
-        width: 100% !important;
+        min-width: 38px !important;
+        display: inline-block !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -522,8 +523,8 @@ def render_live_right_panel():
                             sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
                             with st.expander("로스터 보기", expanded=True):
                                 for member in sorted_roster:
-                                    # 🔥 [수정] 선수 정보와 취소 버튼의 비율을 4:1로 설정하여 버튼 줄바꿈 방지
-                                    c1, c2 = st.columns([4, 1])
+                                    # 🔥 [수정] 선수 정보와 취소 버튼의 가로 배치 비율 안정화 (3.5 : 1.2)
+                                    c1, c2 = st.columns([3.5, 1.2])
                                     m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
                                     c1.markdown(f"<div class='roster-item-text'>• <b>{member['name']}</b> ({m_tier_str}{member['bid']}P)</div>", unsafe_allow_html=True)
                                     if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
