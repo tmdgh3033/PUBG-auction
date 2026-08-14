@@ -68,7 +68,7 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
-# --- 1. 실시간 서버 공유 메모리 (@st.cache_resource) ---
+# --- 1. 실시간 서버 전역 DB (@st.cache_resource) ---
 @st.cache_resource
 def get_global_db():
     return {
@@ -85,7 +85,8 @@ def get_global_db():
         "forced_player": None,
         "timer_set_seconds": 15,
         "timer_running": False,
-        "timer_end_time": 0
+        "timer_end_time": 0,
+        "last_updated": time.time()
     }
 
 global_db = get_global_db()
@@ -106,6 +107,7 @@ if "file_loaded" not in st.session_state:
 
 def save_db_to_file():
     try:
+        global_db["last_updated"] = time.time()
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(dict(global_db), f, ensure_ascii=False, indent=2)
     except Exception:
@@ -132,7 +134,8 @@ def do_reset_all_data():
         "forced_player": None,
         "timer_set_seconds": 15,
         "timer_running": False,
-        "timer_end_time": 0
+        "timer_end_time": 0,
+        "last_updated": time.time()
     })
     save_db_to_file()
 
@@ -140,7 +143,6 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
-# 세션 초기화 및 간소화 토글 상태값 생성
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
 if "show_budget" not in st.session_state:
@@ -267,9 +269,12 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [좌측 실시간 전광판 1초 자동 연동]
+# 🔥 [좌측 실시간 전광판 1초 자동 동기화] - 타이머, 선수카드, 최고 입찰가 실시간 연동
 @st.fragment(run_every="1s")
 def render_live_left_dashboard():
+    # 파일 자동 동기화 체크
+    load_file_to_db()
+
     # 1. 선수 카드
     selected_player = global_db.get("current_player")
     players_list = global_db.get("players", [])
@@ -291,7 +296,7 @@ def render_live_left_dashboard():
                 st.markdown(f"### **{selected_player}**")
                 st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-    # 2. 타이머 전광판
+    # 2. 타이머 카운트다운
     set_sec = global_db.get("timer_set_seconds", 15)
     is_running = global_db.get("timer_running", False)
     end_ts = global_db.get("timer_end_time", 0)
@@ -311,7 +316,7 @@ def render_live_left_dashboard():
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
     st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
 
-    # 3. 최고 입찰가 및 입찰 현황표
+    # 3. 최고 입찰가 및 현황표
     if selected_player:
         current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
         if current_bids:
@@ -329,9 +334,11 @@ def render_live_left_dashboard():
             top_bid = current_bids[top_team]
             st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
-# 🔥 [우측 예산/로스터/히스토리 1초 실시간 연동 + 간소화 토글 복구]
+# 🔥 [우측 예산/로스터/히스토리 1초 실시간 연동 + 간소화 토글]
 @st.fragment(run_every="1s")
 def render_live_right_panel():
+    load_file_to_db()
+
     # 1. 팀별 남은 예산 현황
     bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
     bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
@@ -472,7 +479,7 @@ with tab_auction:
                     global_db["temp_bids"][selected_player] = {}
                 save_db_to_file()
 
-            # 🔥 1초 실시간 연동 좌측 전광판
+            # 🔥 1초 실시간 연동 좌측 전광판 렌더링
             render_live_left_dashboard()
 
             # 2. 진행자 전용 제어 카드 (유찰, 시작, 리셋, +5초)
@@ -523,7 +530,7 @@ with tab_auction:
                     save_db_to_file()
                     st.rerun()
 
-                # 타이머 시간 직접 설정 / 수기 입력
+                # 타이머 시간 직접 설정 / 수기 입력창
                 with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
@@ -644,7 +651,7 @@ with tab_auction:
                                 st.rerun()
 
     with col_right:
-        # 🔥 1초 실시간 연동 우측 패널 (예산 + 로스터 + 기록 + 간소화 버튼)
+        # 🔥 1초 실시간 연동 우측 패널 (예산 + 로스터 + 기록)
         render_live_right_panel()
 
 # 탭 3: 랜덤 선수 추첨 페이지
