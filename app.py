@@ -11,7 +11,6 @@ from datetime import datetime
 st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
-# 🔥 동시 접속자 입찰 충돌 방지용 스레드 락 추가
 db_lock = threading.Lock()
 
 st.markdown("""
@@ -98,7 +97,6 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
-# 🔥 [핵심 수정] 서버 실행 시 최초 1회만 파일에서 로드하여 RAM 메모리 데이터베이스 구축
 @st.cache_resource
 def get_global_db():
     init_data = {
@@ -120,6 +118,7 @@ def get_global_db():
         "show_budget": True,
         "show_roster": True,
         "show_history": True,
+        "app_password": "1234",  # 🔥 기본 비밀번호 설정
         "version": 1
     }
     if os.path.exists(DATA_FILE):
@@ -134,7 +133,28 @@ def get_global_db():
 
 global_db = get_global_db()
 
-# 데이터 변경 시 안전하게 파일에 백업 저장
+# 🔥 [1번 보안 요구사항] 접속 인증 처리 로직
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔒 배틀그라운드 경매 시스템 접속 보안")
+    st.info("경매 진행 및 데이터 접근을 위해 비밀번호를 입력해주세요.")
+    
+    with st.form(key="login_form"):
+        input_pwd = st.text_input("접속 비밀번호 (기본: 1234)", type="password")
+        submit_pwd = st.form_submit_button("🔑 시스템 접속하기", type="primary", use_container_width=True)
+        
+        if submit_pwd:
+            target_pwd = global_db.get("app_password", "1234")
+            if input_pwd == target_pwd:
+                st.session_state.authenticated = True
+                st.success("인증에 성공했습니다!")
+                st.rerun()
+            else:
+                st.error("❌ 비밀번호가 올바르지 않습니다.")
+    st.stop()
+
 def save_db_to_file():
     with db_lock:
         try:
@@ -146,6 +166,7 @@ def save_db_to_file():
 
 def do_reset_all_data():
     with db_lock:
+        cur_pwd = global_db.get("app_password", "1234")
         if os.path.exists(DATA_FILE):
             try:
                 os.remove(DATA_FILE)
@@ -171,6 +192,7 @@ def do_reset_all_data():
             "show_budget": True,
             "show_roster": True,
             "show_history": True,
+            "app_password": cur_pwd,
             "version": 1
         })
         save_db_to_file()
@@ -180,7 +202,14 @@ if "reset_count" not in st.session_state:
 
 rc = st.session_state.reset_count
 
-st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
+title_col, logout_col = st.columns([5, 1])
+with title_col:
+    st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
+with logout_col:
+    st.write("")
+    if st.button("🔒 로그아웃", key="logout_btn"):
+        st.session_state.authenticated = False
+        st.rerun()
 
 active_team_keys = [f"팀 {i}" for i in range(1, global_db["num_teams"] + 1)]
 
@@ -288,6 +317,28 @@ with tab_set:
                     st.rerun()
 
     st.markdown("---")
+    
+    # 🔥 [보안] 비밀번호 변경 설정 구역
+    st.subheader("🔑 시스템 접속 비밀번호 변경")
+    with st.form(key=f"change_password_form_{rc}"):
+        pwd_c1, pwd_c2 = st.columns(2)
+        with pwd_c1:
+            new_pwd_1 = st.text_input("새 비밀번호 입력", type="password", key=f"new_pwd_1_{rc}")
+        with pwd_c2:
+            new_pwd_2 = st.text_input("새 비밀번호 확인", type="password", key=f"new_pwd_2_{rc}")
+        submit_pwd_change = st.form_submit_button("💾 비밀번호 변경 저장")
+        
+        if submit_pwd_change:
+            if not new_pwd_1.strip():
+                st.error("비밀번호를 입력해주세요.")
+            elif new_pwd_1 != new_pwd_2:
+                st.error("입력한 두 비밀번호가 일치하지 않습니다.")
+            else:
+                global_db["app_password"] = new_pwd_1.strip()
+                save_db_to_file()
+                st.success("접속 비밀번호가 성공적으로 변경되었습니다!")
+
+    st.markdown("---")
     st.subheader("🚨 전체 시스템 데이터 초기화")
     st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
     if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key=f"reset_all_system_data_{rc}"):
@@ -295,7 +346,7 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# ⚡ 경매 진행 좌측 영역 프래그먼트 (RAM 메모리에서 바로 조회)
+# ⚡ 경매 진행 좌측 영역 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_auction_left():
     players_list = global_db.get("players", [])
@@ -505,7 +556,7 @@ def render_live_auction_left():
     else:
         st.warning(f"⚠️ 현재 {p_tier_val}티어 선수를 입찰할 수 있는 팀이 없습니다.\n(모든 팀이 이미 {p_tier_val}티어 선수를 보유 중이거나 팀 인원이 가득 찼습니다.)")
 
-# ⚡ 우측 예산/로스터/기록 영역 프래그먼트 (RAM 메모리 바로 조회)
+# ⚡ 우측 예산/로스터/기록 영역 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_right_panel():
     show_bgt = global_db.get("show_budget", True)
