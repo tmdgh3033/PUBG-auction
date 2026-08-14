@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
@@ -19,6 +18,25 @@ st.markdown("""
         padding-bottom: 1.5rem !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
+    }
+    .timer-container {
+        background: linear-gradient(135deg, #1f2937, #111827);
+        border: 1px solid #374151;
+        border-radius: 12px;
+        padding: 12px;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .timer-display {
+        font-size: 36px;
+        font-weight: 800;
+        color: #10b981;
+        letter-spacing: 1px;
+    }
+    .timer-display-warn {
+        font-size: 36px;
+        font-weight: 800;
+        color: #f87171;
     }
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         border-radius: 10px !important;
@@ -137,13 +155,6 @@ rc = st.session_state.reset_count
 
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 
-# 우측 상단 수동 동기화 버튼
-header_col1, header_col2 = st.columns([5, 1])
-with header_col2:
-    if st.button("🔄 최신 상태 새로고침", use_container_width=True):
-        load_file_to_db()
-        st.rerun()
-
 active_team_keys = [f"팀 {i}" for i in range(1, global_db["num_teams"] + 1)]
 
 tab_set, tab_auction, tab_random, tab_landmark = st.tabs([
@@ -257,60 +268,165 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 렌더링용 단일 자바스크립트 타이머
-def render_js_timer(end_timestamp, default_seconds, is_running):
-    now = time.time()
-    if is_running and end_timestamp > now:
-        init_rem = max(0, int(end_timestamp - now))
+# 🔥 1초 자동 연동 타이머 (상대방 화면에도 실시간 차감 반영)
+@st.fragment(run_every="1s")
+def render_live_timer():
+    load_file_to_db()
+    is_running = global_db.get("timer_running", False)
+    set_sec = global_db.get("timer_set_seconds", 15)
+    end_ts = global_db.get("timer_end_timestamp", 0)
+    
+    if is_running:
+        rem = max(0, int(end_ts - time.time()))
+        if rem == 0 and global_db.get("timer_running"):
+            global_db["timer_running"] = False
+            save_db_to_file()
     else:
-        init_rem = default_seconds
+        rem = set_sec
+        
+    t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
+    t_msg = f"{rem}초" if (is_running and rem > 0) else ("⏰ 시간 종료!" if is_running else f"{rem}초")
+    
+    st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
+    st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
 
-    html_code = f"""
-    <div style="
-        background: linear-gradient(135deg, #1f2937, #111827);
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 12px;
-        text-align: center;
-        font-family: sans-serif;
-    ">
-        <div id="timer-text" style="
-            font-size: 36px;
-            font-weight: 800;
-            color: {'#10b981' if init_rem > 5 or not is_running else '#f87171'};
-            letter-spacing: 1px;
-        ">
-            {f'{init_rem}초' if not is_running or init_rem > 0 else '⏰ 시간 종료!'}
-        </div>
-    </div>
+# 🔥 1초 자동 연동 최고 입찰가 & 현황표
+@st.fragment(run_every="1s")
+def render_live_bids(selected_player):
+    load_file_to_db()
+    if selected_player:
+        current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
+        if current_bids:
+            st.markdown("##### 📋 현재 실시간 입찰 현황")
+            bid_rows = []
+            for k, v in current_bids.items():
+                t_name = global_db.get("teams", {}).get(k, {}).get("name", "")
+                bid_rows.append({"팀": k, "팀장": t_name, "입찰가": f"{v}P"})
+            bid_df = pd.DataFrame(bid_rows).sort_values(by="입찰가", ascending=False)
+            st.dataframe(bid_df, hide_index=True, use_container_width=True)
+            
+            sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
+            top_team = sorted_bids[0][0]
+            top_leader = global_db.get("teams", {}).get(top_team, {}).get("name", "")
+            top_bid = current_bids[top_team]
+            st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
-    <script>
-        var endTs = {end_timestamp * 1000};
-        var isRunning = {str(is_running).lower()};
-        var timerText = document.getElementById('timer-text');
+# 🔥 1초 자동 연동 우측 패널 (예산/로스터/기록)
+@st.fragment(run_every="1s")
+def render_live_right_panel():
+    load_file_to_db()
+    
+    bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
+    bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
+    btn_budget_label = "간소화(숨기기)" if st.session_state.show_budget else "펼쳐보기"
+    if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
+        st.session_state.show_budget = not st.session_state.show_budget
+        st.rerun()
+        
+    if st.session_state.show_budget:
+        for i in range(0, global_db["num_teams"], 4):
+            m_cols = st.columns(4)
+            for j in range(4):
+                if i + j < global_db["num_teams"]:
+                    k = active_team_keys[i + j]
+                    t = global_db["teams"][k]
+                    t_label = f"{k} ({t['name']})" if t['name'] else k
+                    m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
+    
+    st.markdown("---")
+    
+    rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
+    rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
+    btn_roster_label = "간소화(숨기기)" if st.session_state.show_roster else "펼쳐보기"
+    if rst_hdr_col2.button(btn_roster_label, key=f"toggle_roster_btn_{rc}"):
+        st.session_state.show_roster = not st.session_state.show_roster
+        st.rerun()
+        
+    if st.session_state.show_roster:
+        for i in range(0, global_db["num_teams"], 4):
+            cols = st.columns(4)
+            for j in range(4):
+                if i+j < global_db["num_teams"]:
+                    t_key = f"팀 {i+j+1}"
+                    t = global_db["teams"][t_key]
+                    with cols[j].container(border=True):
+                        t_display_title = f"{t_key} ({t['name']})" if t['name'] else t_key
+                        st.markdown(f"**{t_display_title}**")
+                        st.caption(f"잔액: {t['budget']}P | {len(t['roster'])}/{global_db['max_roster_size']}명")
+                        if t['roster']:
+                            sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
+                            with st.expander("로스터 보기", expanded=True):
+                                for member in sorted_roster:
+                                    c1, c2 = st.columns([3, 1])
+                                    m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
+                                    c1.write(f"- {member['name']} ({m_tier_str}{member['bid']}P)")
+                                    if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
+                                        t["budget"] += member["bid"]
+                                        t["roster"].remove(member)
+                                        for p in global_db["players"]:
+                                            if p["선수명"] == member["name"]:
+                                                p["상태"] = "추첨완료"
+                                        global_db["history"].append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
+                                        save_db_to_file()
+                                        st.rerun()
+    
+    st.markdown("---")
+    
+    hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
+    hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
+    btn_history_label = "간소화(숨기기)" if st.session_state.show_history else "펼쳐보기"
+    if hist_hdr_col2.button(btn_history_label, key=f"toggle_history_btn_{rc}"):
+        st.session_state.show_history = not st.session_state.show_history
+        st.rerun()
+        
+    if st.session_state.show_history:
+        if global_db["history"]:
+            history_df = pd.DataFrame(global_db["history"])
+            st.table(history_df)
+            
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                csv_history = history_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 경매 히스토리 CSV 다운로드",
+                    data=csv_history,
+                    file_name=f"경매기록_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    key=f"download_csv_hist_{rc}"
+                )
+            with col_exp2:
+                roster_export = []
+                for k in active_team_keys:
+                    t = global_db["teams"][k]
+                    sorted_m_list = sorted(t["roster"], key=lambda x: (x.get("tier", 1), x["name"]))
+                    members_str = ", ".join([f"{m['name']}({m.get('tier', 1)}티어/{m['bid']}P)" for m in sorted_m_list])
+                    roster_export.append({
+                        "팀": k,
+                        "팀장명": t["name"],
+                        "잔여 포인트": t["budget"],
+                        "영입 인원": len(t["roster"]),
+                        "영입 선수 명단 (티어순)": members_str
+                    })
+                roster_df = pd.DataFrame(roster_export)
+                csv_rosters = roster_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 최종 로스터 CSV 다운로드",
+                    data=csv_rosters,
+                    file_name=f"최종로스터_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    key=f"download_csv_roster_{rc}"
+                )
 
-        if (isRunning && endTs > 0) {{
-            var interval = setInterval(function() {{
-                var now = new Date().getTime();
-                var distance = Math.ceil((endTs - now) / 1000);
-
-                if (distance <= 0) {{
-                    clearInterval(interval);
-                    timerText.innerHTML = "⏰ 시간 종료!";
-                    timerText.style.color = "#f87171";
-                }} else {{
-                    timerText.innerHTML = distance + "초";
-                    if (distance <= 5) {{
-                        timerText.style.color = "#f87171";
-                    }} else {{
-                        timerText.style.color = "#10b981";
-                    }}
-                }}
-            }}, 200);
-        }}
-    </script>
-    """
-    components.html(html_code, height=90)
+# 🔥 1초 자동 연동 랜드마크 결과표
+@st.fragment(run_every="1s")
+def render_landmark_results(selected_map):
+    load_file_to_db()
+    st.markdown(f"##### 🏆 {selected_map} 팀별 배정 결과")
+    if selected_map in global_db.get("landmark_assignments", {}):
+        res_df = pd.DataFrame(global_db["landmark_assignments"][selected_map])
+        st.table(res_df)
+    else:
+        st.info("아직 추첨 결과가 없습니다. 왼쪽의 [🎲 랜드마크 전체 추첨!] 버튼을 눌러주세요.")
 
 # 탭 2: 경매 진행
 with tab_auction:
@@ -364,12 +480,8 @@ with tab_auction:
                     st.markdown(f"### **{selected_player}**")
                     st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-            # 타이머 출력
-            render_js_timer(
-                global_db.get("timer_end_timestamp", 0), 
-                global_db.get("timer_set_seconds", 15), 
-                global_db.get("timer_running", False)
-            )
+            # 1초 자동 동기화 타이머
+            render_live_timer()
 
             with st.container(border=True):
                 col_ctrl1, col_ctrl2 = st.columns(2)
@@ -500,154 +612,48 @@ with tab_auction:
                         st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
 
+                # 1초 자동 연동 최고 입찰가
+                render_live_bids(selected_player)
+
                 current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
                 if current_bids:
-                    with st.container(border=True):
-                        st.markdown("##### 📋 현재 실시간 입찰 현황")
-                        bid_rows = []
-                        for k, v in current_bids.items():
-                            t_name = global_db.get("teams", {}).get(k, {}).get("name", "")
-                            bid_rows.append({"팀": k, "팀장": t_name, "입찰가": f"{v}P"})
-                        bid_df = pd.DataFrame(bid_rows).sort_values(by="입찰가", ascending=False)
-                        st.dataframe(bid_df, hide_index=True, use_container_width=True)
-                        
-                        sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
-                        final_winning_team = sorted_bids[0][0]
-                        top_leader = global_db["teams"].get(final_winning_team, {}).get("name", "")
-                        final_bid = current_bids[final_winning_team]
-                        
-                        st.info(f"🏆 현재 최고 입찰: **{final_winning_team}({top_leader})** - **{final_bid}P**")
-                        
-                        if st.button(f"👑 '{final_winning_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
-                            team_budget = global_db["teams"][final_winning_team]["budget"]
-                            if final_bid > team_budget:
-                                st.error(f"낙찰 실패: {final_winning_team}의 잔액({team_budget}P) 부족")
-                            else:
-                                global_db["teams"][final_winning_team]["budget"] -= final_bid
-                                global_db["teams"][final_winning_team]["roster"].append({"name": selected_player, "bid": final_bid, "tier": p_tier_val})
-                                global_db["teams"][final_winning_team]["roster"].sort(key=lambda x: (x.get("tier", 1), x["name"]))
-                                
-                                for p in global_db["players"]:
-                                    if p["선수명"] == selected_player:
-                                        p["상태"] = "완료"
-                                        
-                                global_db["history"].append({
-                                    "시간": datetime.now().strftime("%H:%M:%S"), 
-                                    "팀": f"{final_winning_team}({top_leader})", 
-                                    "선수": f"{selected_player} ({p_tier_val}티어)", 
-                                    "낙찰가": final_bid
-                                })
-                                
-                                if selected_player in global_db["temp_bids"]:
-                                    del global_db["temp_bids"][selected_player]
-                                global_db["current_player"] = None
-                                global_db["forced_player"] = None
-                                global_db["timer_running"] = False
-                                
-                                save_db_to_file()
-                                st.rerun()
+                    sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
+                    final_winning_team = sorted_bids[0][0]
+                    top_leader = global_db["teams"].get(final_winning_team, {}).get("name", "")
+                    final_bid = current_bids[final_winning_team]
+                    
+                    if st.button(f"👑 '{final_winning_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
+                        team_budget = global_db["teams"][final_winning_team]["budget"]
+                        if final_bid > team_budget:
+                            st.error(f"낙찰 실패: {final_winning_team}의 잔액({team_budget}P) 부족")
+                        else:
+                            global_db["teams"][final_winning_team]["budget"] -= final_bid
+                            global_db["teams"][final_winning_team]["roster"].append({"name": selected_player, "bid": final_bid, "tier": p_tier_val})
+                            global_db["teams"][final_winning_team]["roster"].sort(key=lambda x: (x.get("tier", 1), x["name"]))
+                            
+                            for p in global_db["players"]:
+                                if p["선수명"] == selected_player:
+                                    p["상태"] = "완료"
+                                    
+                            global_db["history"].append({
+                                "시간": datetime.now().strftime("%H:%M:%S"), 
+                                "팀": f"{final_winning_team}({top_leader})", 
+                                "선수": f"{selected_player} ({p_tier_val}티어)", 
+                                "낙찰가": final_bid
+                            })
+                            
+                            if selected_player in global_db["temp_bids"]:
+                                del global_db["temp_bids"][selected_player]
+                            global_db["current_player"] = None
+                            global_db["forced_player"] = None
+                            global_db["timer_running"] = False
+                            
+                            save_db_to_file()
+                            st.rerun()
 
     with col_right:
-        bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
-        bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
-        btn_budget_label = "간소화(숨기기)" if st.session_state.show_budget else "펼쳐보기"
-        if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
-            st.session_state.show_budget = not st.session_state.show_budget
-            st.rerun()
-            
-        if st.session_state.show_budget:
-            for i in range(0, global_db["num_teams"], 4):
-                m_cols = st.columns(4)
-                for j in range(4):
-                    if i + j < global_db["num_teams"]:
-                        k = active_team_keys[i + j]
-                        t = global_db["teams"][k]
-                        t_label = f"{k} ({t['name']})" if t['name'] else k
-                        m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
-        
-        st.markdown("---")
-        
-        rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
-        rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
-        btn_roster_label = "간소화(숨기기)" if st.session_state.show_roster else "펼쳐보기"
-        if rst_hdr_col2.button(btn_roster_label, key=f"toggle_roster_btn_{rc}"):
-            st.session_state.show_roster = not st.session_state.show_roster
-            st.rerun()
-            
-        if st.session_state.show_roster:
-            for i in range(0, global_db["num_teams"], 4):
-                cols = st.columns(4)
-                for j in range(4):
-                    if i+j < global_db["num_teams"]:
-                        t_key = f"팀 {i+j+1}"
-                        t = global_db["teams"][t_key]
-                        with cols[j].container(border=True):
-                            t_display_title = f"{t_key} ({t['name']})" if t['name'] else t_key
-                            st.markdown(f"**{t_display_title}**")
-                            st.caption(f"잔액: {t['budget']}P | {len(t['roster'])}/{global_db['max_roster_size']}명")
-                            if t['roster']:
-                                sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
-                                with st.expander("로스터 보기", expanded=True):
-                                    for member in sorted_roster:
-                                        c1, c2 = st.columns([3, 1])
-                                        m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
-                                        c1.write(f"- {member['name']} ({m_tier_str}{member['bid']}P)")
-                                        if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
-                                            t["budget"] += member["bid"]
-                                            t["roster"].remove(member)
-                                            for p in global_db["players"]:
-                                                if p["선수명"] == member["name"]:
-                                                    p["상태"] = "추첨완료"
-                                            global_db["history"].append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
-                                            save_db_to_file()
-                                            st.rerun()
-        
-        st.markdown("---")
-        
-        hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
-        hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
-        btn_history_label = "간소화(숨기기)" if st.session_state.show_history else "펼쳐보기"
-        if hist_hdr_col2.button(btn_history_label, key=f"toggle_history_btn_{rc}"):
-            st.session_state.show_history = not st.session_state.show_history
-            st.rerun()
-            
-        if st.session_state.show_history:
-            if global_db["history"]:
-                history_df = pd.DataFrame(global_db["history"])
-                st.table(history_df)
-                
-                col_exp1, col_exp2 = st.columns(2)
-                with col_exp1:
-                    csv_history = history_df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 경매 히스토리 CSV 다운로드",
-                        data=csv_history,
-                        file_name=f"경매기록_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        key=f"download_csv_hist_{rc}"
-                    )
-                with col_exp2:
-                    roster_export = []
-                    for k in active_team_keys:
-                        t = global_db["teams"][k]
-                        sorted_m_list = sorted(t["roster"], key=lambda x: (x.get("tier", 1), x["name"]))
-                        members_str = ", ".join([f"{m['name']}({m.get('tier', 1)}티어/{m['bid']}P)" for m in sorted_m_list])
-                        roster_export.append({
-                            "팀": k,
-                            "팀장명": t["name"],
-                            "잔여 포인트": t["budget"],
-                            "영입 인원": len(t["roster"]),
-                            "영입 선수 명단 (티어순)": members_str
-                        })
-                    roster_df = pd.DataFrame(roster_export)
-                    csv_rosters = roster_df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 최종 로스터 CSV 다운로드",
-                        data=csv_rosters,
-                        file_name=f"최종로스터_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        key=f"download_csv_roster_{rc}"
-                    )
+        # 1초 자동 연동 우측 패널
+        render_live_right_panel()
 
 # 탭 3: 랜덤 선수 추첨 페이지
 with tab_random:
@@ -754,9 +760,5 @@ with tab_landmark:
                 st.rerun()
 
     with col_lm2:
-        st.markdown(f"##### 🏆 {selected_map} 팀별 배정 결과")
-        if selected_map in global_db["landmark_assignments"]:
-            res_df = pd.DataFrame(global_db["landmark_assignments"][selected_map])
-            st.table(res_df)
-        else:
-            st.info("아직 추첨 결과가 없습니다. 왼쪽의 [🎲 랜드마크 전체 추첨!] 버튼을 눌러주세요.")
+        # 1초 자동 연동 랜드마크 결과표
+        render_landmark_results(selected_map)
