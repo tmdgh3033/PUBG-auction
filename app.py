@@ -68,7 +68,7 @@ DEFAULT_MAP_LANDMARKS = {
     ]
 }
 
-# --- 1. 전역 서버 데이터베이스 (모든 접속자 실시간 공유) ---
+# --- 1. 실시간 서버 공유 메모리 (@st.cache_resource) ---
 @st.cache_resource
 def get_global_db():
     return {
@@ -140,8 +140,16 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
+# 세션 초기화 및 간소화 토글 상태값 생성
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
+if "show_budget" not in st.session_state:
+    st.session_state.show_budget = True
+if "show_roster" not in st.session_state:
+    st.session_state.show_roster = True
+if "show_history" not in st.session_state:
+    st.session_state.show_history = True
+
 rc = st.session_state.reset_count
 
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
@@ -259,9 +267,9 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [실시간 전광판 1초 자동 연동 구역] - 깜빡임 전혀 없이 전광판 숫자만 1초마다 동기화
+# 🔥 [좌측 실시간 전광판 1초 자동 연동]
 @st.fragment(run_every="1s")
-def render_live_dashboard():
+def render_live_left_dashboard():
     # 1. 선수 카드
     selected_player = global_db.get("current_player")
     players_list = global_db.get("players", [])
@@ -303,7 +311,7 @@ def render_live_dashboard():
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
     st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
 
-    # 3. 최고 입찰가 및 현황표
+    # 3. 최고 입찰가 및 입찰 현황표
     if selected_player:
         current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
         if current_bids:
@@ -321,12 +329,119 @@ def render_live_dashboard():
             top_bid = current_bids[top_team]
             st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
+# 🔥 [우측 예산/로스터/히스토리 1초 실시간 연동 + 간소화 토글 복구]
+@st.fragment(run_every="1s")
+def render_live_right_panel():
+    # 1. 팀별 남은 예산 현황
+    bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
+    bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
+    btn_budget_label = "간소화(숨기기)" if st.session_state.show_budget else "펼쳐보기"
+    if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
+        st.session_state.show_budget = not st.session_state.show_budget
+        st.rerun()
+        
+    if st.session_state.show_budget:
+        for i in range(0, global_db["num_teams"], 4):
+            m_cols = st.columns(4)
+            for j in range(4):
+                if i + j < global_db["num_teams"]:
+                    k = active_team_keys[i + j]
+                    t = global_db["teams"][k]
+                    t_label = f"{k} ({t['name']})" if t['name'] else k
+                    m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
+    
+    st.markdown("---")
+    
+    # 2. 팀 로스터 현황
+    rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
+    rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
+    btn_roster_label = "간소화(숨기기)" if st.session_state.show_roster else "펼쳐보기"
+    if rst_hdr_col2.button(btn_roster_label, key=f"toggle_roster_btn_{rc}"):
+        st.session_state.show_roster = not st.session_state.show_roster
+        st.rerun()
+        
+    if st.session_state.show_roster:
+        for i in range(0, global_db["num_teams"], 4):
+            cols = st.columns(4)
+            for j in range(4):
+                if i+j < global_db["num_teams"]:
+                    t_key = f"팀 {i+j+1}"
+                    t = global_db["teams"][t_key]
+                    with cols[j].container(border=True):
+                        t_display_title = f"{t_key} ({t['name']})" if t['name'] else t_key
+                        st.markdown(f"**{t_display_title}**")
+                        st.caption(f"잔액: {t['budget']}P | {len(t['roster'])}/{global_db['max_roster_size']}명")
+                        if t['roster']:
+                            sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
+                            with st.expander("로스터 보기", expanded=True):
+                                for member in sorted_roster:
+                                    c1, c2 = st.columns([3, 1])
+                                    m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
+                                    c1.write(f"- {member['name']} ({m_tier_str}{member['bid']}P)")
+                                    if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
+                                        t["budget"] += member["bid"]
+                                        t["roster"].remove(member)
+                                        for p in global_db["players"]:
+                                            if p["선수명"] == member["name"]:
+                                                p["상태"] = "추첨완료"
+                                        global_db["history"].append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
+                                        save_db_to_file()
+                                        st.rerun()
+    
+    st.markdown("---")
+    
+    # 3. 전체 경매 기록
+    hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
+    hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
+    btn_history_label = "간소화(숨기기)" if st.session_state.show_history else "펼쳐보기"
+    if hist_hdr_col2.button(btn_history_label, key=f"toggle_history_btn_{rc}"):
+        st.session_state.show_history = not st.session_state.show_history
+        st.rerun()
+        
+    if st.session_state.show_history:
+        if global_db["history"]:
+            history_df = pd.DataFrame(global_db["history"])
+            st.table(history_df)
+            
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                csv_history = history_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 경매 히스토리 CSV 다운로드",
+                    data=csv_history,
+                    file_name=f"경매기록_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    key=f"download_csv_hist_{rc}"
+                )
+            with col_exp2:
+                roster_export = []
+                for k in active_team_keys:
+                    t = global_db["teams"][k]
+                    sorted_m_list = sorted(t["roster"], key=lambda x: (x.get("tier", 1), x["name"]))
+                    members_str = ", ".join([f"{m['name']}({m.get('tier', 1)}티어/{m['bid']}P)" for m in sorted_m_list])
+                    roster_export.append({
+                        "팀": k,
+                        "팀장명": t["name"],
+                        "잔여 포인트": t["budget"],
+                        "영입 인원": len(t["roster"]),
+                        "영입 선수 명단 (티어순)": members_str
+                    })
+                roster_df = pd.DataFrame(roster_export)
+                csv_rosters = roster_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 최종 로스터 CSV 다운로드",
+                    data=csv_rosters,
+                    file_name=f"최종로스터_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    key=f"download_csv_roster_{rc}"
+                )
+
 # 탭 2: 경매 진행
 with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 진행자 선수 선택 box
+        # 1. 진행자 선수 선택 Box
         players_list = global_db.get("players", [])
         waiting_players = [p for p in players_list if p.get("상태") == "추첨완료"]
         waiting_players.sort(key=lambda x: (x.get("티어", 1), x.get("선수명", "")))
@@ -357,8 +472,8 @@ with tab_auction:
                     global_db["temp_bids"][selected_player] = {}
                 save_db_to_file()
 
-            # 🔥 1초 실시간 연동 전광판 렌더링 (관전자 화면 자동 동기화)
-            render_live_dashboard()
+            # 🔥 1초 실시간 연동 좌측 전광판
+            render_live_left_dashboard()
 
             # 2. 진행자 전용 제어 카드 (유찰, 시작, 리셋, +5초)
             with st.container(border=True):
@@ -408,7 +523,7 @@ with tab_auction:
                     save_db_to_file()
                     st.rerun()
 
-                # 💡 타이머 초 수기 설정 및 단축 버튼 (절대 사라지지 않음)
+                # 타이머 시간 직접 설정 / 수기 입력
                 with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
@@ -529,88 +644,8 @@ with tab_auction:
                                 st.rerun()
 
     with col_right:
-        # 1. 팀별 남은 예산 현황
-        st.subheader("📊 팀별 남은 예산 현황")
-        for i in range(0, global_db["num_teams"], 4):
-            m_cols = st.columns(4)
-            for j in range(4):
-                if i + j < global_db["num_teams"]:
-                    k = active_team_keys[i + j]
-                    t = global_db["teams"][k]
-                    t_label = f"{k} ({t['name']})" if t['name'] else k
-                    m_cols[j].metric(label=t_label, value=f"{t['budget']}P")
-        
-        st.markdown("---")
-        
-        # 2. 팀 로스터 현황
-        st.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
-        for i in range(0, global_db["num_teams"], 4):
-            cols = st.columns(4)
-            for j in range(4):
-                if i+j < global_db["num_teams"]:
-                    t_key = f"팀 {i+j+1}"
-                    t = global_db["teams"][t_key]
-                    with cols[j].container(border=True):
-                        t_display_title = f"{t_key} ({t['name']})" if t['name'] else t_key
-                        st.markdown(f"**{t_display_title}**")
-                        st.caption(f"잔액: {t['budget']}P | {len(t['roster'])}/{global_db['max_roster_size']}명")
-                        if t['roster']:
-                            sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
-                            with st.expander("로스터 보기", expanded=True):
-                                for member in sorted_roster:
-                                    c1, c2 = st.columns([3, 1])
-                                    m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
-                                    c1.write(f"- {member['name']} ({m_tier_str}{member['bid']}P)")
-                                    if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
-                                        t["budget"] += member["bid"]
-                                        t["roster"].remove(member)
-                                        for p in global_db["players"]:
-                                            if p["선수명"] == member["name"]:
-                                                p["상태"] = "추첨완료"
-                                        global_db["history"].append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
-                                        save_db_to_file()
-                                        st.rerun()
-        
-        st.markdown("---")
-        
-        # 3. 전체 경매 기록
-        st.subheader("📜 전체 경매 기록 및 CSV 내보내기")
-        if global_db["history"]:
-            history_df = pd.DataFrame(global_db["history"])
-            st.table(history_df)
-            
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                csv_history = history_df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label="📥 경매 히스토리 CSV 다운로드",
-                    data=csv_history,
-                    file_name=f"경매기록_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",
-                    key=f"download_csv_hist_{rc}"
-                )
-            with col_exp2:
-                roster_export = []
-                for k in active_team_keys:
-                    t = global_db["teams"][k]
-                    sorted_m_list = sorted(t["roster"], key=lambda x: (x.get("tier", 1), x["name"]))
-                    members_str = ", ".join([f"{m['name']}({m.get('tier', 1)}티어/{m['bid']}P)" for m in sorted_m_list])
-                    roster_export.append({
-                        "팀": k,
-                        "팀장명": t["name"],
-                        "잔여 포인트": t["budget"],
-                        "영입 인원": len(t["roster"]),
-                        "영입 선수 명단 (티어순)": members_str
-                    })
-                roster_df = pd.DataFrame(roster_export)
-                csv_rosters = roster_df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label="📥 최종 로스터 CSV 다운로드",
-                    data=csv_rosters,
-                    file_name=f"최종로스터_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv",
-                    key=f"download_csv_roster_{rc}"
-                )
+        # 🔥 1초 실시간 연동 우측 패널 (예산 + 로스터 + 기록 + 간소화 버튼)
+        render_live_right_panel()
 
 # 탭 3: 랜덤 선수 추첨 페이지
 with tab_random:
