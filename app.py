@@ -82,7 +82,7 @@ def get_global_db():
         "current_player": None,
         "temp_bids": {},
         "forced_player": None,
-        "timer_set_seconds": 15,
+        "timer_set_seconds": 7,
         "timer_end_timestamp": 0,
         "timer_running": False,
         "version": 1
@@ -131,7 +131,7 @@ def do_reset_all_data():
         "current_player": None,
         "temp_bids": {},
         "forced_player": None,
-        "timer_set_seconds": 15,
+        "timer_set_seconds": 7,
         "timer_end_timestamp": 0,
         "timer_running": False,
         "version": 1
@@ -268,7 +268,7 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [핵심 추가] 경매 좌측 화면 (선수 선택, 프로필 카드, 타이머, 입찰 현황) 1초 자동 전체 연동
+# 경매 좌측 화면 (선수 선택, 프로필 카드, 타이머, 입찰 현황) 1초 자동 전체 연동
 @st.fragment(run_every="1s")
 def render_live_auction_left_panel():
     load_file_to_db()
@@ -283,7 +283,6 @@ def render_live_auction_left_panel():
 
     select_key = f"selected_auction_player_{rc}"
 
-    # 서버에서 경매 대상 선수가 바뀌었으면 접속자 화면의 선택 상자를 자동 갱신
     srv_player = global_db.get("current_player")
     if srv_player and srv_player in waiting_list:
         if st.session_state.get("last_synced_player") != srv_player:
@@ -300,7 +299,6 @@ def render_live_auction_left_panel():
         format_func=lambda x: f"{x} ({next((p['티어'] for p in waiting_players if p['선수명']==x), 1)}티어)"
     )
     
-    # 드롭다운 선택 변경 시 서버 데이터 업데이크
     if global_db.get("current_player") != selected_player:
         global_db["current_player"] = selected_player
         global_db["timer_running"] = False
@@ -326,9 +324,9 @@ def render_live_auction_left_panel():
             st.markdown(f"### **{selected_player}**")
             st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-    # 실시간 타이머 출력
+    # 고정 7초 타이머 계산 및 출력
     is_running = global_db.get("timer_running", False)
-    set_sec = global_db.get("timer_set_seconds", 15)
+    set_sec = global_db.get("timer_set_seconds", 7)
     end_ts = global_db.get("timer_end_timestamp", 0)
     
     if is_running:
@@ -339,7 +337,7 @@ def render_live_auction_left_panel():
     else:
         rem = set_sec
         
-    t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
+    t_disp_class = "timer-display-warn" if rem <= 3 and rem > 0 else "timer-display"
     t_msg = f"{rem}초" if (is_running and rem > 0) else ("⏰ 시간 종료!" if is_running else f"{rem}초")
     
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
@@ -369,7 +367,7 @@ def render_live_auction_left_panel():
 
         with col_ctrl2:
             if not global_db.get("timer_running", False):
-                if st.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
+                if st.button("▶️ 7초 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
                     global_db["timer_running"] = True
                     global_db["timer_end_timestamp"] = time.time() + global_db["timer_set_seconds"]
                     save_db_to_file()
@@ -383,36 +381,11 @@ def render_live_auction_left_panel():
             global_db["timer_running"] = False
             global_db["timer_end_timestamp"] = 0
             save_db_to_file()
-        if t_b2.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
-            global_db["timer_set_seconds"] += 5
+        if t_b2.button("+3초 추가", use_container_width=True, key=f"timer_add3_btn_{rc}"):
+            global_db["timer_set_seconds"] += 3
             if global_db.get("timer_running", False):
-                global_db["timer_end_timestamp"] += 5
+                global_db["timer_end_timestamp"] += 3
             save_db_to_file()
-
-        with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
-            p_c1, p_c2, p_c3, p_c4 = st.columns(4)
-            if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
-                global_db["timer_set_seconds"] = 10
-                global_db["timer_running"] = False
-                save_db_to_file()
-            if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
-                global_db["timer_set_seconds"] = 15
-                global_db["timer_running"] = False
-                save_db_to_file()
-            if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
-                global_db["timer_set_seconds"] = 30
-                global_db["timer_running"] = False
-                save_db_to_file()
-            if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
-                global_db["timer_set_seconds"] = 60
-                global_db["timer_running"] = False
-                save_db_to_file()
-
-            custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=global_db["timer_set_seconds"], step=1, key=f"custom_timer_sec_{rc}")
-            if custom_sec != global_db["timer_set_seconds"]:
-                global_db["timer_set_seconds"] = custom_sec
-                global_db["timer_running"] = False
-                save_db_to_file()
 
     team_options = {
         k: global_db["teams"][k] 
@@ -459,8 +432,10 @@ def render_live_auction_left_panel():
                     global_db["temp_bids"][selected_player] = {}
                 global_db["temp_bids"][selected_player][bidding_team] = entered_bid
                 
+                # 입찰 시 타이머 7초 자동 리셋 및 시작
+                global_db["timer_set_seconds"] = 7
                 global_db["timer_running"] = True
-                global_db["timer_end_timestamp"] = time.time() + global_db["timer_set_seconds"]
+                global_db["timer_end_timestamp"] = time.time() + 7
                 save_db_to_file()
                 st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
 
