@@ -84,8 +84,9 @@ def get_global_db():
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 15,
+        "timer_remaining": 15,
         "timer_running": False,
-        "timer_end_time": 0,
+        "last_timer_update": time.time(),
         "version": 1
     }
 
@@ -135,8 +136,9 @@ def do_reset_all_data():
         "temp_bids": {},
         "forced_player": None,
         "timer_set_seconds": 15,
+        "timer_remaining": 15,
         "timer_running": False,
-        "timer_end_time": 0,
+        "last_timer_update": time.time(),
         "version": 1
     })
     save_db_to_file()
@@ -145,31 +147,24 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
-# 🔥 [실시간 전체 화면 자동 동기화 엔진]
+# 🔥 [실시간 변경 사항 서버 와처 - 데이터가 달라질 때만 동기화]
 @st.fragment(run_every="1s")
-def global_sync_watcher():
-    need_rerun = False
+def sync_watcher():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 disk_data = json.load(f)
                 disk_ver = disk_data.get("version", 1)
-                if disk_ver > st.session_state.get("local_ver", 0):
+                local_ver = st.session_state.get("local_ver", 0)
+                if disk_ver > local_ver:
                     for k, v in disk_data.items():
                         global_db[k] = v
                     st.session_state.local_ver = disk_ver
-                    need_rerun = True
+                    st.rerun(scope="app")
         except Exception:
             pass
 
-    if global_db.get("version", 1) > st.session_state.get("local_ver", 0):
-        st.session_state.local_ver = global_db["version"]
-        need_rerun = True
-
-    if need_rerun:
-        st.rerun(scope="app")
-
-global_sync_watcher()
+sync_watcher()
 
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
@@ -297,27 +292,30 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [실시간 타이머 1초 자동 동기화 렌더러]
+# 🔥 [타이머 카운트다운 프래그먼트 - 튀지 않는 연산 방식 적용]
 @st.fragment(run_every="1s")
 def render_timer_display():
     set_sec = global_db.get("timer_set_seconds", 15)
     is_running = global_db.get("timer_running", False)
-    end_ts = global_db.get("timer_end_time", 0)
-    now_ts = time.time()
+    rem_sec = global_db.get("timer_remaining", set_sec)
+    last_upd = global_db.get("last_timer_update", time.time())
+    now = time.time()
     
     if is_running:
-        rem = max(0, int(end_ts - now_ts))
-        if rem == 0 and global_db.get("timer_running"):
-            global_db["timer_running"] = False
+        elapsed = int(now - last_upd)
+        if elapsed >= 1:
+            rem_sec = max(0, rem_sec - elapsed)
+            global_db["timer_remaining"] = rem_sec
+            global_db["last_timer_update"] = now
+            if rem_sec == 0:
+                global_db["timer_running"] = False
             save_db_to_file()
-    else:
-        rem = set_sec
-
-    t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
-    t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
+            
+    t_disp_class = "timer-display-warn" if rem_sec <= 5 and rem_sec > 0 else "timer-display"
+    t_msg = f"{rem_sec}초" if rem_sec > 0 else "⏰ 시간 종료!"
 
     st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
-    st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
+    st.progress(max(0.0, min(1.0, rem_sec / set_sec)) if set_sec > 0 else 0.0)
 
 # 탭 2: 경매 진행
 with tab_auction:
@@ -353,6 +351,7 @@ with tab_auction:
             if global_db.get("current_player") != selected_player:
                 global_db["current_player"] = selected_player
                 global_db["timer_running"] = False
+                global_db["timer_remaining"] = global_db["timer_set_seconds"]
                 if selected_player not in global_db["temp_bids"]:
                     global_db["temp_bids"][selected_player] = {}
                 save_db_to_file()
@@ -372,7 +371,7 @@ with tab_auction:
                     st.markdown(f"### **{selected_player}**")
                     st.caption(f"티어 정보: **{p_tier_val}티어**")
 
-            # 🔥 3. 실시간 타이머 (카운트다운 지속 작동 연결)
+            # 3. 실시간 안정화 타이머
             render_timer_display()
 
             # 4. 타이머 제어 및 수기 입력 카드
@@ -401,8 +400,8 @@ with tab_auction:
                 with col_ctrl2:
                     if not global_db.get("timer_running", False):
                         if st.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
-                            global_db["timer_end_time"] = time.time() + global_db["timer_set_seconds"]
                             global_db["timer_running"] = True
+                            global_db["last_timer_update"] = time.time()
                             save_db_to_file()
                             st.rerun()
                     else:
@@ -414,12 +413,12 @@ with tab_auction:
                 t_b1, t_b2 = st.columns(2)
                 if t_b1.button("🔄 타이머 리셋", use_container_width=True, key=f"timer_reset_btn_{rc}"):
                     global_db["timer_running"] = False
+                    global_db["timer_remaining"] = global_db["timer_set_seconds"]
                     save_db_to_file()
                     st.rerun()
                 if t_b2.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
                     global_db["timer_set_seconds"] += 5
-                    if global_db.get("timer_running", False):
-                        global_db["timer_end_time"] += 5
+                    global_db["timer_remaining"] += 5
                     save_db_to_file()
                     st.rerun()
 
@@ -427,21 +426,25 @@ with tab_auction:
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
                         global_db["timer_set_seconds"] = 10
+                        global_db["timer_remaining"] = 10
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
                         global_db["timer_set_seconds"] = 15
+                        global_db["timer_remaining"] = 15
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
                         global_db["timer_set_seconds"] = 30
+                        global_db["timer_remaining"] = 30
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
                     if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
                         global_db["timer_set_seconds"] = 60
+                        global_db["timer_remaining"] = 60
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
@@ -449,6 +452,7 @@ with tab_auction:
                     custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=global_db["timer_set_seconds"], step=1, key=f"custom_timer_sec_{rc}")
                     if custom_sec != global_db["timer_set_seconds"]:
                         global_db["timer_set_seconds"] = custom_sec
+                        global_db["timer_remaining"] = custom_sec
                         global_db["timer_running"] = False
                         save_db_to_file()
                         st.rerun()
@@ -499,8 +503,10 @@ with tab_auction:
                             global_db["temp_bids"][selected_player] = {}
                         global_db["temp_bids"][selected_player][bidding_team] = entered_bid
                         
-                        global_db["timer_end_time"] = time.time() + global_db["timer_set_seconds"]
+                        # 입찰 제출 시 타이머 리셋 후 자동으로 시작
+                        global_db["timer_remaining"] = global_db["timer_set_seconds"]
                         global_db["timer_running"] = True
+                        global_db["last_timer_update"] = time.time()
                         save_db_to_file()
                         st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
