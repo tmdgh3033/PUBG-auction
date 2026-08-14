@@ -85,6 +85,9 @@ def get_global_db():
         "timer_set_seconds": 7,
         "timer_end_timestamp": 0,
         "timer_running": False,
+        "show_budget": True,
+        "show_roster": True,
+        "show_history": True,
         "version": 1
     }
 
@@ -134,18 +137,15 @@ def do_reset_all_data():
         "timer_set_seconds": 7,
         "timer_end_timestamp": 0,
         "timer_running": False,
+        "show_budget": True,
+        "show_roster": True,
+        "show_history": True,
         "version": 1
     })
     save_db_to_file()
 
 if "reset_count" not in st.session_state:
     st.session_state.reset_count = 0
-if "show_budget" not in st.session_state:
-    st.session_state.show_budget = True
-if "show_roster" not in st.session_state:
-    st.session_state.show_roster = True
-if "show_history" not in st.session_state:
-    st.session_state.show_history = True
 
 rc = st.session_state.reset_count
 
@@ -337,19 +337,23 @@ def render_live_bids_display():
                 top_bid = current_bids[top_team]
                 st.info(f"🏆 현재 최고 입찰: **{top_team}({top_leader})** - **{top_bid}P**")
 
-# ⚡ 우측 팀 예산 및 로스터 1초 자동 연동
+# 🔥 [수정] 간소화 버튼 눌러도 새로고침(F5) 없이 해당 영역만 안정적으로 전환되도록 조치
 @st.fragment(run_every="1s")
 def render_live_right_panel():
     load_file_to_db()
     
+    show_bgt = global_db.get("show_budget", True)
+    show_rst = global_db.get("show_roster", True)
+    show_hst = global_db.get("show_history", True)
+    
     bgt_hdr_col1, bgt_hdr_col2 = st.columns([3, 1])
     bgt_hdr_col1.subheader("📊 팀별 남은 예산 현황")
-    btn_budget_label = "간소화(숨기기)" if st.session_state.show_budget else "펼쳐보기"
+    btn_budget_label = "간소화(숨기기)" if show_bgt else "펼쳐보기"
     if bgt_hdr_col2.button(btn_budget_label, key=f"toggle_budget_btn_{rc}"):
-        st.session_state.show_budget = not st.session_state.show_budget
-        st.rerun()
+        global_db["show_budget"] = not show_bgt
+        save_db_to_file()
         
-    if st.session_state.show_budget:
+    if global_db.get("show_budget", True):
         for i in range(0, global_db["num_teams"], 4):
             m_cols = st.columns(4)
             for j in range(4):
@@ -363,12 +367,12 @@ def render_live_right_panel():
     
     rst_hdr_col1, rst_hdr_col2 = st.columns([3, 1])
     rst_hdr_col1.subheader(f"👥 팀 로스터 현황 ({global_db['num_teams']}개 팀)")
-    btn_roster_label = "간소화(숨기기)" if st.session_state.show_roster else "펼쳐보기"
+    btn_roster_label = "간소화(숨기기)" if show_rst else "펼쳐보기"
     if rst_hdr_col2.button(btn_roster_label, key=f"toggle_roster_btn_{rc}"):
-        st.session_state.show_roster = not st.session_state.show_roster
-        st.rerun()
+        global_db["show_roster"] = not show_rst
+        save_db_to_file()
         
-    if st.session_state.show_roster:
+    if global_db.get("show_roster", True):
         for i in range(0, global_db["num_teams"], 4):
             cols = st.columns(4)
             for j in range(4):
@@ -394,18 +398,17 @@ def render_live_right_panel():
                                                 p["상태"] = "추첨완료"
                                         global_db["history"].append({"시간": datetime.now().strftime("%H:%M:%S"), "팀": f"{t_key}({t['name']})", "선수": f"{member['name']} (낙찰취소)", "낙찰가": -member["bid"]})
                                         save_db_to_file()
-                                        st.rerun()
     
     st.markdown("---")
     
     hist_hdr_col1, hist_hdr_col2 = st.columns([3, 1])
     hist_hdr_col1.subheader("📜 전체 경매 기록 및 CSV 내보내기")
-    btn_history_label = "간소화(숨기기)" if st.session_state.show_history else "펼쳐보기"
+    btn_history_label = "간소화(숨기기)" if show_hst else "펼쳐보기"
     if hist_hdr_col2.button(btn_history_label, key=f"toggle_history_btn_{rc}"):
-        st.session_state.show_history = not st.session_state.show_history
-        st.rerun()
+        global_db["show_history"] = not show_hst
+        save_db_to_file()
         
-    if st.session_state.show_history:
+    if global_db.get("show_history", True):
         if global_db["history"]:
             history_df = pd.DataFrame(global_db["history"])
             st.table(history_df)
@@ -552,7 +555,6 @@ with tab_auction:
             }
             
             if team_options:
-                # 🔥 [핵심 수정] st.form으로 입찰 입력 영역 보호 (수동 타이핑 시 새로고침 방지)
                 with st.form(key=f"bidding_form_{rc}"):
                     st.markdown("##### 📌 입찰 등록")
                     
