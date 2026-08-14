@@ -1,6 +1,4 @@
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import os
@@ -13,9 +11,6 @@ st.set_page_config(page_title="배그 경매 시스템", layout="wide")
 
 DATA_FILE = "data_store.json"
 
-# 1.5초마다 다른 사용자 변경 사항 감지 (스마트 폴링)
-st_autorefresh(interval=1500, limit=None, key="auction_poll_timer")
-
 st.markdown("""
     <style>
     .block-container {
@@ -23,6 +18,25 @@ st.markdown("""
         padding-bottom: 1.5rem !important;
         padding-left: 1.5rem !important;
         padding-right: 1.5rem !important;
+    }
+    .timer-container {
+        background: linear-gradient(135deg, #1f2937, #111827);
+        border: 1px solid #374151;
+        border-radius: 12px;
+        padding: 12px;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    .timer-display {
+        font-size: 38px;
+        font-weight: 800;
+        color: #10b981;
+        letter-spacing: 1px;
+    }
+    .timer-display-warn {
+        font-size: 38px;
+        font-weight: 800;
+        color: #f87171;
     }
     div[data-testid="stVerticalBlock"] > div[style*="border"] {
         border-radius: 10px !important;
@@ -83,10 +97,8 @@ def init_defaults():
         st.session_state.timer_set_seconds = 15
     if "timer_running" not in st.session_state:
         st.session_state.timer_running = False
-    if "timer_start_timestamp" not in st.session_state:
-        st.session_state.timer_start_timestamp = 0
-    if "last_updated" not in st.session_state:
-        st.session_state.last_updated = 0
+    if "timer_end_time" not in st.session_state:
+        st.session_state.timer_end_time = 0
     if "show_budget" not in st.session_state:
         st.session_state.show_budget = True
     if "show_roster" not in st.session_state:
@@ -114,9 +126,6 @@ def save_data_to_file():
                 "사진": img_b64
             })
             
-    now_ts = time.time()
-    st.session_state.last_updated = now_ts
-
     store = {
         "num_teams": st.session_state.get("num_teams", 16),
         "max_roster_size": st.session_state.get("max_roster_size", 7),
@@ -131,49 +140,42 @@ def save_data_to_file():
         "forced_player": st.session_state.get("forced_player", None),
         "timer_set_seconds": st.session_state.get("timer_set_seconds", 15),
         "timer_running": st.session_state.get("timer_running", False),
-        "timer_start_timestamp": st.session_state.get("timer_start_timestamp", 0),
-        "last_updated": now_ts
+        "timer_end_time": st.session_state.get("timer_end_time", 0)
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(store, f, ensure_ascii=False, indent=2)
 
-def sync_data_from_file_if_newer():
-    """타임스탬프가 실제로 갱신되었을 때만 데이터 수신 (무한 깜빡임 방지)"""
+def load_data_from_file():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 store = json.load(f)
-                file_ts = store.get("last_updated", 0)
-                session_ts = st.session_state.get("last_updated", 0)
-
-                if file_ts > session_ts:
-                    st.session_state.last_updated = file_ts
-                    st.session_state.num_teams = store.get("num_teams", 16)
-                    st.session_state.max_roster_size = store.get("max_roster_size", 7)
-                    st.session_state.initial_budget = store.get("initial_budget", 1000)
-                    st.session_state.teams = store.get("teams", {})
-                    st.session_state.custom_landmarks = store.get("custom_landmarks", DEFAULT_MAP_LANDMARKS)
-                    st.session_state.history = store.get("history", [])
-                    st.session_state.landmark_assignments = store.get("landmark_assignments", {})
-                    st.session_state.current_player = store.get("current_player", None)
-                    st.session_state.temp_bids = store.get("temp_bids", {})
-                    st.session_state.forced_player = store.get("forced_player", None)
-                    st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
-                    st.session_state.timer_running = store.get("timer_running", False)
-                    st.session_state.timer_start_timestamp = store.get("timer_start_timestamp", 0)
-                    
-                    players_list = store.get("players", [])
-                    if players_list:
-                        df_rows = []
-                        for p in players_list:
-                            img_bytes = None
-                            if p["사진"]:
-                                try:
-                                    img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
-                                except Exception:
-                                    img_bytes = None
-                            df_rows.append({"선수명": p["선수명"], "티어": p.get("티어", 1), "상태": p.get("상태", "대기중"), "사진": img_bytes})
-                        st.session_state.players = pd.DataFrame(df_rows)
+                st.session_state.num_teams = store.get("num_teams", 16)
+                st.session_state.max_roster_size = store.get("max_roster_size", 7)
+                st.session_state.initial_budget = store.get("initial_budget", 1000)
+                st.session_state.teams = store.get("teams", {})
+                st.session_state.custom_landmarks = store.get("custom_landmarks", DEFAULT_MAP_LANDMARKS)
+                st.session_state.history = store.get("history", [])
+                st.session_state.landmark_assignments = store.get("landmark_assignments", {})
+                st.session_state.current_player = store.get("current_player", None)
+                st.session_state.temp_bids = store.get("temp_bids", {})
+                st.session_state.forced_player = store.get("forced_player", None)
+                st.session_state.timer_set_seconds = store.get("timer_set_seconds", 15)
+                st.session_state.timer_running = store.get("timer_running", False)
+                st.session_state.timer_end_time = store.get("timer_end_time", 0)
+                
+                players_list = store.get("players", [])
+                if players_list:
+                    df_rows = []
+                    for p in players_list:
+                        img_bytes = None
+                        if p["사진"]:
+                            try:
+                                img_bytes = base64.b64decode(p["사진"].encode("utf-8"))
+                            except Exception:
+                                img_bytes = None
+                        df_rows.append({"선수명": p["선수명"], "티어": p.get("티어", 1), "상태": p.get("상태", "대기중"), "사진": img_bytes})
+                    st.session_state.players = pd.DataFrame(df_rows)
         except Exception:
             pass
 
@@ -188,79 +190,9 @@ def add_bid_amount(target_key, amount, max_limit):
     cur_val = st.session_state.get(target_key, 10)
     st.session_state[target_key] = min(max_limit, cur_val + amount)
 
-# HTML5/JS 기반 고성능 타이머
-def render_js_timer(duration_sec, is_running, start_time_ms):
-    timer_html = f"""
-    <div style="
-        background: linear-gradient(135deg, #1f2937, #111827);
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 12px;
-        text-align: center;
-        font-family: sans-serif;
-    ">
-        <div id="js-timer-display" style="
-            font-size: 38px;
-            font-weight: 800;
-            color: #10b981;
-            letter-spacing: 1px;
-        ">{duration_sec}초</div>
-        <div style="background-color: #374151; border-radius: 8px; height: 10px; width: 100%; margin-top: 8px; overflow: hidden;">
-            <div id="js-timer-bar" style="background-color: #10b981; height: 100%; width: 100%; transition: width 0.2s linear;"></div>
-        </div>
-    </div>
-
-    <script>
-        (function() {{
-            const totalDuration = {duration_sec};
-            const isRunning = {str(is_running).lower()};
-            const startTime = {start_time_ms};
-            
-            const display = document.getElementById('js-timer-display');
-            const bar = document.getElementById('js-timer-bar');
-            
-            if (!isRunning || startTime === 0) {{
-                display.innerText = totalDuration + "초";
-                display.style.color = totalDuration <= 5 ? "#f87171" : "#10b981";
-                bar.style.width = "100%";
-                return;
-            }}
-
-            function updateTimer() {{
-                const now = Date.now();
-                const elapsedSec = (now - startTime) / 1000;
-                const remaining = Math.max(0, Math.ceil(totalDuration - elapsedSec));
-                const pct = Math.max(0, Math.min(100, (remaining / totalDuration) * 100));
-
-                if (remaining <= 0) {{
-                    display.innerText = "⏰ 시간 종료!";
-                    display.style.color = "#f87171";
-                    bar.style.width = "0%";
-                    bar.style.backgroundColor = "#f87171";
-                }} else {{
-                    display.innerText = remaining + "초";
-                    if (remaining <= 5) {{
-                        display.style.color = "#f87171";
-                        bar.style.backgroundColor = "#f87171";
-                    }} else {{
-                        display.style.color = "#10b981";
-                        bar.style.backgroundColor = "#10b981";
-                    }}
-                    bar.style.width = pct + "%";
-                    requestAnimationFrame(updateTimer);
-                }}
-            }}
-            updateTimer();
-        }})();
-    </script>
-    """
-    components.html(timer_html, height=105)
-
-# 1. 세션 기본값 설정
+# 초기화
 init_defaults()
-
-# 2. 파일에서 최신 변경점 실시간 자동 수신
-sync_data_from_file_if_newer()
+load_data_from_file()
 
 rc = st.session_state.reset_count
 
@@ -371,76 +303,53 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
+# 🔥 핵심: 전체 페이지를 재실행하지 않고, 실시간 입찰 현황판만 1초 간격으로 부분 새로고침하는 조각(Fragment)
+@st.fragment(run_every="1s")
+def render_live_bidding_board(selected_player):
+    load_data_from_file()
+    
+    # 1. 타이머 실시간 표시
+    set_sec = st.session_state.get("timer_set_seconds", 15)
+    now_ts = time.time()
+    
+    if st.session_state.get("timer_running", False):
+        end_ts = st.session_state.get("timer_end_time", now_ts)
+        rem = max(0, int(end_ts - now_ts))
+        if rem == 0:
+            st.session_state.timer_running = False
+            save_data_to_file()
+    else:
+        rem = set_sec
+
+    t_disp_class = "timer-display-warn" if rem <= 5 and rem > 0 else "timer-display"
+    t_msg = f"{rem}초" if rem > 0 else "⏰ 시간 종료!"
+
+    st.markdown(f'<div class="timer-container"><div class="{t_disp_class}">{t_msg}</div></div>', unsafe_allow_html=True)
+    st.progress(max(0.0, min(1.0, rem / set_sec)) if set_sec > 0 else 0.0)
+
+    # 2. 실시간 입찰 현황 리스트
+    current_bids = st.session_state.temp_bids.get(selected_player, {})
+    if current_bids:
+        st.markdown("##### 📋 현재 선수 실시간 입찰 현황")
+        bid_df = pd.DataFrame([
+            {"팀": k, "팀장": st.session_state.teams.get(k, {}).get('name', ''), "입찰가": f"{v}P"} 
+            for k, v in current_bids.items()
+        ]).sort_values(by="입찰가", ascending=False)
+        st.dataframe(bid_df, hide_index=True, use_container_width=True)
+        
+        sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
+        final_winning_team = sorted_bids[0][0]
+        top_leader = st.session_state.teams.get(final_winning_team, {}).get("name", "")
+        final_bid = current_bids[final_winning_team]
+        
+        st.info(f"🏆 현재 최고 입찰: **{final_winning_team}({top_leader})** - **{final_bid}P**")
+
 # 탭 2: 경매 진행
 with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 타이머
-        with st.container(border=True):
-            set_sec = st.session_state.timer_set_seconds
-            is_running = st.session_state.timer_running
-            start_ts = st.session_state.timer_start_timestamp
-
-            render_js_timer(set_sec, is_running, start_ts)
-            
-            t_btn_col1, t_btn_col2, t_btn_col3 = st.columns([2, 1, 1])
-            if not is_running:
-                if t_btn_col1.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
-                    st.session_state.timer_start_timestamp = int(time.time() * 1000)
-                    st.session_state.timer_running = True
-                    save_data_to_file()
-                    st.rerun()
-            else:
-                if t_btn_col1.button("⏸️ 일시정지 / 멈춤", type="secondary", use_container_width=True, key=f"timer_pause_btn_{rc}"):
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-                    
-            if t_btn_col2.button("🔄 리셋", use_container_width=True, key=f"timer_reset_btn_{rc}"):
-                st.session_state.timer_running = False
-                st.session_state.timer_start_timestamp = 0
-                save_data_to_file()
-                st.rerun()
-                
-            if t_btn_col3.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
-                st.session_state.timer_set_seconds += 5
-                if is_running:
-                    st.session_state.timer_start_timestamp += 5000
-                save_data_to_file()
-                st.rerun()
-
-            with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
-                p_c1, p_c2, p_c3, p_c4 = st.columns(4)
-                if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
-                    st.session_state.timer_set_seconds = 10
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-                if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
-                    st.session_state.timer_set_seconds = 15
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-                if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
-                    st.session_state.timer_set_seconds = 30
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-                if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
-                    st.session_state.timer_set_seconds = 60
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-
-                custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1, key=f"custom_timer_sec_{rc}")
-                if custom_sec != st.session_state.timer_set_seconds:
-                    st.session_state.timer_set_seconds = custom_sec
-                    st.session_state.timer_running = False
-                    save_data_to_file()
-                    st.rerun()
-
-        # 2. 선수 선택 카드
+        # 1. 선수 선택 카드
         available_players = st.session_state.players[st.session_state.players["상태"] == "추첨완료"]
         if "티어" not in available_players.columns:
             available_players["티어"] = 1
@@ -498,7 +407,66 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 등록 카드
+            # 2. 타이머 조작 및 실시간 전광판 조각(Fragment)
+            with st.container(border=True):
+                render_live_bidding_board(selected_player)
+                
+                t_btn_col1, t_btn_col2, t_btn_col3 = st.columns([2, 1, 1])
+                if not st.session_state.timer_running:
+                    if t_btn_col1.button("▶️ 카운트다운 시작", type="primary", use_container_width=True, key=f"timer_start_btn_{rc}"):
+                        st.session_state.timer_end_time = time.time() + st.session_state.timer_set_seconds
+                        st.session_state.timer_running = True
+                        save_data_to_file()
+                        st.rerun()
+                else:
+                    if t_btn_col1.button("⏸️ 일시정지 / 멈춤", type="secondary", use_container_width=True, key=f"timer_pause_btn_{rc}"):
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+                        
+                if t_btn_col2.button("🔄 리셋", use_container_width=True, key=f"timer_reset_btn_{rc}"):
+                    st.session_state.timer_running = False
+                    save_data_to_file()
+                    st.rerun()
+                    
+                if t_btn_col3.button("+5초 추가", use_container_width=True, key=f"timer_add5_btn_{rc}"):
+                    st.session_state.timer_set_seconds += 5
+                    if st.session_state.timer_running:
+                        st.session_state.timer_end_time += 5
+                    save_data_to_file()
+                    st.rerun()
+
+                with st.expander("⚙️ 타이머 시간 직접 설정 / 변경"):
+                    p_c1, p_c2, p_c3, p_c4 = st.columns(4)
+                    if p_c1.button("10초", use_container_width=True, key=f"t_10s_{rc}"):
+                        st.session_state.timer_set_seconds = 10
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+                    if p_c2.button("15초", use_container_width=True, key=f"t_15s_{rc}"):
+                        st.session_state.timer_set_seconds = 15
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+                    if p_c3.button("30초", use_container_width=True, key=f"t_30s_{rc}"):
+                        st.session_state.timer_set_seconds = 30
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+                    if p_c4.button("60초", use_container_width=True, key=f"t_60s_{rc}"):
+                        st.session_state.timer_set_seconds = 60
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+
+                    custom_sec = st.number_input("타이머 초 수기 입력", min_value=3, max_value=300, value=st.session_state.timer_set_seconds, step=1, key=f"custom_timer_sec_{rc}")
+                    if custom_sec != st.session_state.timer_set_seconds:
+                        st.session_state.timer_set_seconds = custom_sec
+                        st.session_state.timer_running = False
+                        save_data_to_file()
+                        st.rerun()
+
+            # 3. 입찰 등록 영역 (안정화된 고정 영역)
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
@@ -525,6 +493,7 @@ with tab_auction:
 
                     st.session_state[bid_num_key] = min(max_b_limit, max(0, st.session_state[bid_num_key]))
                     
+                    # 입찰 단축 버튼 4종 (+10P ~ +500P)
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
                     quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(bid_num_key, 10, max_b_limit))
                     quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(bid_num_key, 50, max_b_limit))
@@ -540,37 +509,29 @@ with tab_auction:
                     )
                     
                     if st.button("🚀 입찰 제출", type="primary", use_container_width=True, key=f"submit_bid_btn_{rc}"):
+                        load_data_from_file()
+                        if selected_player not in st.session_state.temp_bids:
+                            st.session_state.temp_bids[selected_player] = {}
                         st.session_state.temp_bids[selected_player][bidding_team] = entered_bid
-                        # 입찰 제출 시 설정된 초로 리셋 및 카운트다운 자동 시작 (모든 브라우저 연동)
-                        st.session_state.timer_start_timestamp = int(time.time() * 1000)
+                        
+                        # 입찰 제출 시 타이머 즉시 초기화 및 시작
+                        st.session_state.timer_end_time = time.time() + st.session_state.timer_set_seconds
                         st.session_state.timer_running = True
                         save_data_to_file()
-                        st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰 제출 완료!")
+                        st.success(f"{bidding_team} ({st.session_state.teams[bidding_team]['name']}) {entered_bid}P 입찰 완료!")
                         st.rerun()
 
-                # 입찰 현황 및 낙찰
+                # 낙찰 확정
                 current_bids = st.session_state.temp_bids.get(selected_player, {})
                 if current_bids:
                     with st.container(border=True):
-                        st.markdown("##### 📋 현재 선수 입찰 현황")
-                        bid_df = pd.DataFrame([
-                            {"팀": k, "팀장": st.session_state.teams[k]['name'], "입찰가": f"{v}P"} 
-                            for k, v in current_bids.items()
-                        ]).sort_values(by="입찰가", ascending=False)
-                        st.dataframe(bid_df, hide_index=True, use_container_width=True)
-                        
-                        st.markdown("---")
-                        
                         sorted_bids = sorted(current_bids.items(), key=lambda x: x[1], reverse=True)
-                        sorted_teams = [team for team, amount in sorted_bids]
-                        
-                        final_winning_team = sorted_teams[0]
-                        top_leader = st.session_state.teams[final_winning_team]["name"]
+                        final_winning_team = sorted_bids[0][0]
+                        top_leader = st.session_state.teams.get(final_winning_team, {}).get("name", "")
                         final_bid = current_bids[final_winning_team]
                         
-                        st.info(f"🏆 최고 입찰: **{final_winning_team}({top_leader})** - **{final_bid}P**")
-                        
                         if st.button(f"👑 '{final_winning_team}' 낙찰 확정!", type="primary", use_container_width=True, key=f"confirm_final_bid_btn_{rc}"):
+                            load_data_from_file()
                             team_budget = st.session_state.teams[final_winning_team]["budget"]
                             if final_bid > team_budget:
                                 st.error(f"낙찰 실패: {final_winning_team}의 잔액({team_budget}P) 부족")
