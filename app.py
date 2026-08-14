@@ -48,27 +48,35 @@ st.markdown("""
     div[data-testid="column"] {
         padding: 0px 2px !important;
     }
-    /* 🔥 로스터 텍스트 스타일 최적화 */
+    /* 🔥 로스터 텍스트 스타일 */
     .roster-item-text {
         font-size: 13px !important;
-        line-height: 1.2 !important;
+        line-height: 20px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         margin: 0 !important;
-        padding: 3px 0 !important;
+        padding: 0 !important;
         color: #f3f4f6;
     }
-    /* 🔥 [수정] 취소 버튼 가로쓰기 고정 및 크기 최적화 */
-    div[data-testid="stExpander"] div[data-testid="column"] button {
-        padding: 2px 6px !important;
+    /* 🔥 [수정] 취소 버튼 크기를 글씨 높이에 딱 맞게 슬림화 */
+    div[data-testid="stExpander"] div[data-testid="stButton"] {
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    div[data-testid="stExpander"] div[data-testid="stButton"] > button {
+        padding: 0px 5px !important;
         font-size: 11px !important;
-        min-height: 22px !important;
-        height: 22px !important;
-        line-height: 1 !important;
+        min-height: 18px !important;
+        height: 18px !important;
+        line-height: 18px !important;
         white-space: nowrap !important;
-        min-width: 38px !important;
-        display: inline-block !important;
+        min-width: unset !important;
+        width: auto !important;
+        margin: 1px 0 0 0 !important;
+        border-radius: 4px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -523,8 +531,7 @@ def render_live_right_panel():
                             sorted_roster = sorted(t['roster'], key=lambda x: (x.get("tier", 1), x["name"]))
                             with st.expander("로스터 보기", expanded=True):
                                 for member in sorted_roster:
-                                    # 🔥 [수정] 선수 정보와 취소 버튼의 가로 배치 비율 안정화 (3.5 : 1.2)
-                                    c1, c2 = st.columns([3.5, 1.2])
+                                    c1, c2 = st.columns([3.8, 1])
                                     m_tier_str = f"{member.get('tier', 1)}티어, " if 'tier' in member else ""
                                     c1.markdown(f"<div class='roster-item-text'>• <b>{member['name']}</b> ({m_tier_str}{member['bid']}P)</div>", unsafe_allow_html=True)
                                     if c2.button("취소", key=f"cancel_{t_key}_{member['name']}_{rc}"):
