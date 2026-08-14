@@ -266,7 +266,7 @@ with tab_set:
         st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
         st.rerun()
 
-# 🔥 [핵심 수정] 경매 진행 좌측 영역 전체를 프래그먼트로 전격 통합 (입찰/버튼 눌러도 F5 깜빡임 0%)
+# ⚡ 경매 진행 좌측 영역 프래그먼트
 @st.fragment(run_every="1s")
 def render_live_auction_left():
     load_file_to_db()
@@ -379,49 +379,7 @@ def render_live_auction_left():
             global_db["timer_end_timestamp"] = 0
             save_db_to_file()
 
-    # 3. 입찰 등록 양식 (팀 선택, 금액 입력, 입찰 제출)
-    team_options = {
-        k: global_db["teams"][k] 
-        for k in active_team_keys 
-        if len(global_db["teams"][k]["roster"]) < global_db["max_roster_size"]
-    }
-    
-    if team_options:
-        with st.form(key=f"bidding_form_{rc}"):
-            st.markdown("##### 📌 입찰 등록")
-            
-            team_list = list(team_options.keys())
-            bidding_team = st.selectbox(
-                "입찰할 팀 선택", 
-                team_list, 
-                format_func=lambda x: f"{x} ({global_db['teams'][x]['name']}) - 잔액: {global_db['teams'][x]['budget']}P", 
-                key=f"bidding_team_select_{rc}"
-            )
-            
-            max_b_limit = global_db["teams"][bidding_team]["budget"]
-            
-            entered_bid = st.number_input(
-                "입찰 금액(P)", 
-                min_value=0, 
-                max_value=max_b_limit, 
-                value=10,
-                step=5,
-                key=f"bid_input_num_{rc}"
-            )
-            
-            submit_bid = st.form_submit_button("🚀 입찰 제출", type="primary", use_container_width=True)
-            
-            if submit_bid:
-                if selected_player not in global_db["temp_bids"]:
-                    global_db["temp_bids"][selected_player] = {}
-                global_db["temp_bids"][selected_player][bidding_team] = entered_bid
-                
-                global_db["timer_running"] = True
-                global_db["timer_end_timestamp"] = time.time() + 7
-                save_db_to_file()
-                st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
-
-    # 4. 실시간 입찰 현황 및 낙찰 확정
+    # 🔥 3. [위치 변경] 실시간 입찰 현황 및 낙찰 확정 (상단 배치)
     if selected_player:
         current_bids = global_db.get("temp_bids", {}).get(selected_player, {})
         if current_bids:
@@ -468,6 +426,48 @@ def render_live_auction_left():
                         
                         save_db_to_file()
                         st.success(f"🎉 '{selected_player}' 선수가 {top_team}팀에 낙찰 완료되었습니다!")
+
+    # 🔥 4. [위치 변경] 입찰 등록 양식 (팀 선택, 금액 입력, 입찰 제출 - 하단 배치)
+    team_options = {
+        k: global_db["teams"][k] 
+        for k in active_team_keys 
+        if len(global_db["teams"][k]["roster"]) < global_db["max_roster_size"]
+    }
+    
+    if team_options:
+        with st.form(key=f"bidding_form_{rc}"):
+            st.markdown("##### 📌 입찰 등록")
+            
+            team_list = list(team_options.keys())
+            bidding_team = st.selectbox(
+                "입찰할 팀 선택", 
+                team_list, 
+                format_func=lambda x: f"{x} ({global_db['teams'][x]['name']}) - 잔액: {global_db['teams'][x]['budget']}P", 
+                key=f"bidding_team_select_{rc}"
+            )
+            
+            max_b_limit = global_db["teams"][bidding_team]["budget"]
+            
+            entered_bid = st.number_input(
+                "입찰 금액(P)", 
+                min_value=0, 
+                max_value=max_b_limit, 
+                value=10,
+                step=5,
+                key=f"bid_input_num_{rc}"
+            )
+            
+            submit_bid = st.form_submit_button("🚀 입찰 제출", type="primary", use_container_width=True)
+            
+            if submit_bid:
+                if selected_player not in global_db["temp_bids"]:
+                    global_db["temp_bids"][selected_player] = {}
+                global_db["temp_bids"][selected_player][bidding_team] = entered_bid
+                
+                global_db["timer_running"] = True
+                global_db["timer_end_timestamp"] = time.time() + 7
+                save_db_to_file()
+                st.success(f"{bidding_team} ({global_db['teams'][bidding_team]['name']}) {entered_bid}P 입찰 완료!")
 
 # ⚡ 우측 예산/로스터 패널 실시간 1초 자동 연동
 @st.fragment(run_every="1s")
