@@ -220,6 +220,11 @@ def do_reset_all_data():
     st.session_state.timer_end_time = 0
     st.session_state.timer_running = False
 
+# 입찰가 증가 콜백 함수
+def add_bid_amount(key_name, amount, max_limit):
+    cur_val = st.session_state.get(key_name, 0)
+    st.session_state[key_name] = min(max_limit, cur_val + amount)
+
 # 항상 최신 저장 데이터 파일 불러오기
 sync_data_from_file_if_updated()
 
@@ -348,7 +353,7 @@ with tab_auction:
     col_left, col_right = st.columns([5, 6])
     
     with col_left:
-        # 1. 절대 타임스탬프 기반 카운트다운 타이머 (깜빡임 완벽 차단)
+        # 1. 절대 타임스탬프 기반 카운트다운 타이머
         with st.container(border=True):
             set_sec = st.session_state.get("timer_set_seconds", 15)
             now_time = time.time()
@@ -513,28 +518,16 @@ with tab_auction:
                     )
                     
                     max_b_limit = st.session_state.teams[bidding_team]["budget"]
-                    
                     bid_key = f"bid_val_input_{rc}"
+                    
                     if bid_key not in st.session_state:
                         st.session_state[bid_key] = 10
                         
                     quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
-                    if quick_col1.button("+10P", key=f"btn_add_10_{rc}"):
-                        st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key] + 10)
-                        save_data_to_file()
-                        st.rerun()
-                    if quick_col2.button("+50P", key=f"btn_add_50_{rc}"):
-                        st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key] + 50)
-                        save_data_to_file()
-                        st.rerun()
-                    if quick_col3.button("+100P", key=f"btn_add_100_{rc}"):
-                        st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key] + 100)
-                        save_data_to_file()
-                        st.rerun()
-                    if quick_col4.button("+500P", key=f"btn_add_500_{rc}"):
-                        st.session_state[bid_key] = min(max_b_limit, st.session_state[bid_key] + 500)
-                        save_data_to_file()
-                        st.rerun()
+                    quick_col1.button("+10P", key=f"btn_add_10_{rc}", on_click=add_bid_amount, args=(bid_key, 10, max_b_limit))
+                    quick_col2.button("+50P", key=f"btn_add_50_{rc}", on_click=add_bid_amount, args=(bid_key, 50, max_b_limit))
+                    quick_col3.button("+100P", key=f"btn_add_100_{rc}", on_click=add_bid_amount, args=(bid_key, 100, max_b_limit))
+                    quick_col4.button("+500P", key=f"btn_add_500_{rc}", on_click=add_bid_amount, args=(bid_key, 500, max_b_limit))
                         
                     entered_bid = st.number_input(
                         "입찰 금액(P)", 
