@@ -15,11 +15,6 @@ DATA_FILE = "data_store.json"
 # 모든 브라우저가 1초마다 최신 입력 상태까지 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="global_realtime_sync_timer")
 
-if "reset_count" not in st.session_state:
-    st.session_state.reset_count = 0
-
-rc = st.session_state.reset_count
-
 st.markdown("""
     <style>
     .block-container {
@@ -76,6 +71,55 @@ DEFAULT_MAP_LANDMARKS = {
         "간녕", "아미베이스", "월송", "팔라스", "오향", "터미널", "스쿨 / 송암", "호산", "고독"
     ]
 }
+
+def init_defaults():
+    """🔥 핵심: session_state 누락 방지를 위한 안전한 기본값 설정"""
+    if "reset_count" not in st.session_state:
+        st.session_state.reset_count = 0
+    if "num_teams" not in st.session_state:
+        st.session_state.num_teams = 16
+    if "max_roster_size" not in st.session_state:
+        st.session_state.max_roster_size = 7
+    if "initial_budget" not in st.session_state:
+        st.session_state.initial_budget = 1000
+    if "teams" not in st.session_state:
+        st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
+    if "custom_landmarks" not in st.session_state:
+        st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
+    if "history" not in st.session_state:
+        st.session_state.history = []
+    if "landmark_assignments" not in st.session_state:
+        st.session_state.landmark_assignments = {}
+    if "players" not in st.session_state:
+        st.session_state.players = pd.DataFrame(columns=["선수명", "티어", "상태", "사진"])
+    if "current_player" not in st.session_state:
+        st.session_state.current_player = None
+    if "temp_bids" not in st.session_state:
+        st.session_state.temp_bids = {}
+    if "forced_player" not in st.session_state:
+        st.session_state.forced_player = None
+    if "timer_set_seconds" not in st.session_state:
+        st.session_state.timer_set_seconds = 15
+    if "timer_remaining" not in st.session_state:
+        st.session_state.timer_remaining = 15
+    if "timer_end_time" not in st.session_state:
+        st.session_state.timer_end_time = 0
+    if "timer_running" not in st.session_state:
+        st.session_state.timer_running = False
+    if "live_bidding_team" not in st.session_state:
+        st.session_state.live_bidding_team = "팀 1"
+    if "live_bid_amount" not in st.session_state:
+        st.session_state.live_bid_amount = 10
+    if "last_updated" not in st.session_state:
+        st.session_state.last_updated = 0
+    if "show_bidding" not in st.session_state:
+        st.session_state.show_bidding = True
+    if "show_budget" not in st.session_state:
+        st.session_state.show_budget = True
+    if "show_roster" not in st.session_state:
+        st.session_state.show_roster = True
+    if "show_history" not in st.session_state:
+        st.session_state.show_history = True
 
 def get_empty_store():
     return {
@@ -181,7 +225,6 @@ def sync_data_from_file_if_updated():
                     st.session_state.live_bidding_team = store.get("live_bidding_team", "팀 1")
                     st.session_state.live_bid_amount = store.get("live_bid_amount", 10)
                     
-                    # 위젯 Key 상태 동기화
                     rc_val = st.session_state.get("reset_count", 0)
                     st.session_state[f"bid_val_input_{rc_val}"] = st.session_state.live_bid_amount
                     st.session_state[f"bidding_team_select_{rc_val}"] = st.session_state.live_bidding_team
@@ -216,25 +259,8 @@ def do_reset_all_data():
         del st.session_state[key]
         
     st.session_state.reset_count = new_rc
-    st.session_state.num_teams = 16
-    st.session_state.max_roster_size = 7
-    st.session_state.initial_budget = 1000
-    st.session_state.teams = {f"팀 {i}": {"name": "", "budget": 1000, "roster": []} for i in range(1, 21)}
-    st.session_state.custom_landmarks = {k: list(v) for k, v in DEFAULT_MAP_LANDMARKS.items()}
-    st.session_state.history = []
-    st.session_state.landmark_assignments = {}
-    st.session_state.players = pd.DataFrame(columns=["선수명", "티어", "상태", "사진"])
-    st.session_state.current_player = None
-    st.session_state.temp_bids = {}
-    st.session_state.forced_player = None
-    st.session_state.timer_set_seconds = 15
-    st.session_state.timer_remaining = 15
-    st.session_state.timer_end_time = 0
-    st.session_state.timer_running = False
-    st.session_state.live_bidding_team = "팀 1"
-    st.session_state.live_bid_amount = 10
+    init_defaults()
 
-# 입찰가 증가 및 위젯 State 직접 변경 콜백
 def add_bid_amount(amount, max_limit):
     rc_val = st.session_state.get("reset_count", 0)
     bid_key = f"bid_val_input_{rc_val}"
@@ -255,19 +281,13 @@ def update_live_bid():
     st.session_state["live_bid_amount"] = st.session_state.get(f"bid_val_input_{rc_val}", 10)
     save_data_to_file()
 
-# 항상 최신 저장 데이터 파일 불러오기
+# 1. 안전하게 기본값 초기화
+init_defaults()
+
+# 2. 파일이 있다면 최신 데이터 수신 동기화
 sync_data_from_file_if_updated()
 
-if "initialized" not in st.session_state:
-    if "show_bidding" not in st.session_state:
-        st.session_state.show_bidding = True
-    if "show_budget" not in st.session_state:
-        st.session_state.show_budget = True
-    if "show_roster" not in st.session_state:
-        st.session_state.show_roster = True
-    if "show_history" not in st.session_state:
-        st.session_state.show_history = True
-    st.session_state.initialized = True
+rc = st.session_state.reset_count
 
 st.title("🏆 배틀그라운드 팀장 드래프트 경매 시스템")
 
@@ -529,7 +549,7 @@ with tab_auction:
                     st.session_state.temp_bids[selected_player] = {}
                 save_data_to_file()
 
-            # 3. 입찰 카드 (실시간 미제출 수치 및 선택사항 완전 연동)
+            # 3. 입찰 카드
             team_options = {
                 k: st.session_state.teams[k] 
                 for k in active_team_keys 
