@@ -119,7 +119,7 @@ def get_global_db():
         "show_roster": True,
         "show_history": True,
         "app_password": "1234",    # 일반 참가자 입장 비밀번호
-        "admin_password": "3033",  # 🔥 주최자 전용 마스터 비밀번호 (3033으로 변경)
+        "admin_password": "3033",  # 주최자 전용 마스터 비밀번호
         "version": 1
     }
     if os.path.exists(DATA_FILE):
@@ -130,6 +130,8 @@ def get_global_db():
                     init_data[k] = v
         except Exception:
             pass
+            
+    init_data["admin_password"] = "3033"
     return init_data
 
 global_db = get_global_db()
@@ -169,7 +171,6 @@ def save_db_to_file():
 def do_reset_all_data():
     with db_lock:
         cur_pwd = global_db.get("app_password", "1234")
-        cur_admin_pwd = global_db.get("admin_password", "3033")
         if os.path.exists(DATA_FILE):
             try:
                 os.remove(DATA_FILE)
@@ -196,7 +197,7 @@ def do_reset_all_data():
             "show_roster": True,
             "show_history": True,
             "app_password": cur_pwd,
-            "admin_password": cur_admin_pwd,
+            "admin_password": "3033",
             "version": 1
         })
         save_db_to_file()
@@ -322,6 +323,17 @@ with tab_set:
 
     st.markdown("---")
     
+    # 🔥 [수정 1] 위치 변경: 전체 시스템 데이터 초기화 (마스터 비밀번호 없음)
+    st.subheader("🚨 전체 시스템 데이터 초기화")
+    st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
+    if st.button("⚠️ 전체 시스템 데이터 완전 초기화", type="primary", key=f"reset_all_system_data_{rc}"):
+        do_reset_all_data()
+        st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
+        st.rerun()
+
+    st.markdown("---")
+    
+    # 🔥 [수정 2] 위치 변경: 접속 비밀번호 변경 (관리자 인증 필요)
     st.subheader("🔑 접속 비밀번호 변경 (관리자 인증 필요)")
     st.caption("비밀번호를 변경하려면 주최자 마스터 비밀번호를 먼저 입력해야 합니다.")
     
@@ -347,24 +359,6 @@ with tab_set:
                 global_db["app_password"] = new_pwd_1.strip()
                 save_db_to_file()
                 st.success("접속 비밀번호가 성공적으로 변경되었습니다!")
-
-    st.markdown("---")
-    
-    st.subheader("🚨 전체 시스템 데이터 초기화 (관리자 인증 필요)")
-    st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
-    
-    with st.form(key=f"reset_all_data_form_{rc}"):
-        reset_admin_pwd = st.text_input("🔒 주최자 마스터 비밀번호 입력", type="password", key=f"reset_admin_pwd_{rc}")
-        submit_reset = st.form_submit_button("⚠️ 전체 데이터 완전 초기화 실행", type="primary")
-        
-        if submit_reset:
-            target_admin_pwd = global_db.get("admin_password", "3033")
-            if reset_admin_pwd == target_admin_pwd:
-                do_reset_all_data()
-                st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
-                st.rerun()
-            else:
-                st.error("❌ 주최자 마스터 비밀번호가 올바르지 않아 초기화할 수 없습니다.")
 
 # ⚡ 경매 진행 좌측 영역 프래그먼트
 @st.fragment(run_every="1s")
