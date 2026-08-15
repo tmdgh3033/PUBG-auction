@@ -119,7 +119,7 @@ def get_global_db():
         "show_roster": True,
         "show_history": True,
         "app_password": "1234",    # 일반 참가자 입장 비밀번호
-        "admin_password": "5678",  # 🔥 주최자 전용 마스터 비밀번호
+        "admin_password": "3033",  # 🔥 주최자 전용 마스터 비밀번호 (3033으로 변경)
         "version": 1
     }
     if os.path.exists(DATA_FILE):
@@ -143,12 +143,12 @@ if not st.session_state.authenticated:
     st.info("경매 진행 및 데이터 접근을 위해 비밀번호를 입력해주세요.")
     
     with st.form(key="login_form"):
-        input_pwd = st.text_input("접속 비밀번호 (기본: 1234)", type="password")
+        input_pwd = st.text_input("접속 비밀번호", type="password")
         submit_pwd = st.form_submit_button("🔑 시스템 접속하기", type="primary", use_container_width=True)
         
         if submit_pwd:
             target_pwd = global_db.get("app_password", "1234")
-            admin_pwd = global_db.get("admin_password", "5678")
+            admin_pwd = global_db.get("admin_password", "3033")
             if input_pwd in [target_pwd, admin_pwd]:
                 st.session_state.authenticated = True
                 st.success("인증에 성공했습니다!")
@@ -169,7 +169,7 @@ def save_db_to_file():
 def do_reset_all_data():
     with db_lock:
         cur_pwd = global_db.get("app_password", "1234")
-        cur_admin_pwd = global_db.get("admin_password", "5678")
+        cur_admin_pwd = global_db.get("admin_password", "3033")
         if os.path.exists(DATA_FILE):
             try:
                 os.remove(DATA_FILE)
@@ -322,9 +322,8 @@ with tab_set:
 
     st.markdown("---")
     
-    # 🔥 [마스터 비밀번호 보안 검증 추가]
     st.subheader("🔑 접속 비밀번호 변경 (관리자 인증 필요)")
-    st.caption("비밀번호를 변경하려면 주최자 마스터 비밀번호(기본: 5678)를 먼저 입력해야 합니다.")
+    st.caption("비밀번호를 변경하려면 주최자 마스터 비밀번호를 먼저 입력해야 합니다.")
     
     with st.form(key=f"change_password_form_{rc}"):
         admin_auth_pwd = st.text_input("🔒 주최자 마스터 비밀번호 입력", type="password", key=f"admin_auth_input_{rc}")
@@ -337,7 +336,7 @@ with tab_set:
         submit_pwd_change = st.form_submit_button("💾 비밀번호 변경 저장")
         
         if submit_pwd_change:
-            target_admin_pwd = global_db.get("admin_password", "5678")
+            target_admin_pwd = global_db.get("admin_password", "3033")
             if admin_auth_pwd != target_admin_pwd:
                 st.error("❌ 주최자 마스터 비밀번호가 올바르지 않아 변경할 수 없습니다.")
             elif not new_pwd_1.strip():
@@ -351,7 +350,6 @@ with tab_set:
 
     st.markdown("---")
     
-    # 🔥 [전체 초기화 안전장치]
     st.subheader("🚨 전체 시스템 데이터 초기화 (관리자 인증 필요)")
     st.write("모든 팀 정보, 팀장명, 경매 결과, 랜드마크 추첨 기록을 삭제하고 처음 상태로 되돌립니다.")
     
@@ -360,7 +358,7 @@ with tab_set:
         submit_reset = st.form_submit_button("⚠️ 전체 데이터 완전 초기화 실행", type="primary")
         
         if submit_reset:
-            target_admin_pwd = global_db.get("admin_password", "5678")
+            target_admin_pwd = global_db.get("admin_password", "3033")
             if reset_admin_pwd == target_admin_pwd:
                 do_reset_all_data()
                 st.success("모든 시스템 데이터가 완벽하게 초기화되었습니다.")
